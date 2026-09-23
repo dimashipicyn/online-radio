@@ -30,9 +30,10 @@ const config = {
     speaker: process.env.DJ_SPEAKER || 'eugene',
     callerSpeaker: process.env.CALLER_SPEAKER || 'xenia',
     enabled: bool(process.env.DJ_ENABLED, true),
+    style: process.env.DJ_STYLE || '',              // своё описание персоны (перекрывает дефолт)
     leadSec: num(process.env.DJ_LEAD_SEC, 30),      // за сколько до конца трека готовить реплику
     chatterChance: Number(process.env.DJ_CHATTER_CHANCE ?? 0.4), // шанс болтовни без темы
-    maxTokens: num(process.env.DJ_MAX_TOKENS, 250),
+    maxTokens: num(process.env.DJ_MAX_TOKENS, 400),
   },
   kb: { topK: num(process.env.KB_TOP_K, 3), chunkChars: 600 },
   paths: { music: process.env.MUSIC_DIR || '/music', data: process.env.DATA_DIR || '/data' },
