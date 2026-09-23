@@ -124,7 +124,6 @@ def tts(req: TtsRequest):
             text=text,
             speaker=speaker,
             sample_rate=SAMPLE_RATE,
-            length_scale=float(min(max(req.rate, 0.7), 1.6)),
         )
     except Exception as e:  # noqa: BLE001
         log.error("tts failed: %s", e)

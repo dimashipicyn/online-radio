@@ -48,6 +48,11 @@ class TrackPlayer {
     return Math.max(0, this.track.duration - this.playedSec);
   }
 
+  /** Жив ли декодер (может ли буфер ещё наполняться). */
+  get alive() {
+    return !!this.ff;
+  }
+
   start() {
     const args = [
       '-hide_banner', '-loglevel', 'error',
@@ -88,7 +93,10 @@ class TrackPlayer {
 
   /** Микшер вычитывает ровно n байт; null — пока нет. */
   readExact(n) {
-    if (this.fifo.length < n) return null;
+    if (this.fifo.length < n) {
+      this._maybeDone(); // важно: конец трека может наступить именно тут
+      return null;
+    }
     if (this.ff && this.ff.stdout.isPaused() && this.fifo.length < this.maxBytes * 0.5) {
       this.ff.stdout.resume();
     }

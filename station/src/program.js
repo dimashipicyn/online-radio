@@ -199,7 +199,8 @@ class Program {
     }
     const p = this.player;
     if (!p) return null;
-    if (p.buffered < PREBUFFER_BYTES && p.remainingSec > 1) return null; // пребуфер
+    // пребуфер только пока декодер жив: у доигрывающего трека добираем хвост
+    if (p.alive && p.buffered < PREBUFFER_BYTES && p.remainingSec > 1) return null;
     return p.readExact(CHUNK_BYTES);
   }
 
