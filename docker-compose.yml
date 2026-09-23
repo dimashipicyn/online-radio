@@ -1,0 +1,106 @@
+name: online-radio
+
+services:
+  # ---------- станция: эфир-движок + веб-UI ----------
+  station:
+    build: ./station
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ICECAST_HOST: ${ICECAST_HOST:-icecast}
+      ICECAST_PORT: ${ICECAST_PORT:-8000}
+      ICECAST_MOUNT: ${ICECAST_MOUNT:-radio.mp3}
+      OLLAMA_HOST: http://ollama:11434
+      TTS_HOST: http://tts:8001
+    volumes:
+      - ./music:/music:ro
+      - ./data:/data
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [radio]
+
+  # ---------- TTS: Silero (этап 4 заполнит реализацию) ----------
+  tts:
+    build: ./tts
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8001/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [radio]
+
+  # ---------- Ollama на GPU (запуск: --profile ai) ----------
+  ollama:
+    image: ollama/ollama:latest
+    profiles: [ai]
+    restart: unless-stopped
+    volumes:
+      - ollama_models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    networks: [radio]
+
+  ollama-init:
+    image: ollama/ollama:latest
+    profiles: [ai]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "ollama pull ${OLLAMA_MODEL:-qwen2.5:7b-instruct-q4_K_M} && ollama pull nomic-embed-text && echo '=== INIT_DONE ==='"]
+    restart: "no"
+    networks: [radio]
+
+  # ---------- локальный icecast для прослушивания дома (запуск: --profile local) ----------
+  icecast:
+    build: ./icecast
+    profiles: [local]
+    restart: unless-stopped
+    environment:
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?set in .env}
+      ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD:-admin123}
+      ICECAST_HOSTNAME: localhost
+    ports:
+      - "${ICECAST_PUBLIC_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/status.xsl", "-o", "/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [radio]
+
+  # ---------- туннель веб-UI на VPS (запуск: --profile tunnel) ----------
+  frpc:
+    image: snowdreamtech/frpc:latest
+    profiles: [tunnel]
+    restart: unless-stopped
+    volumes:
+      - ./frp/frpc.toml:/etc/frp/frpc.toml:ro
+    networks: [radio]
+
+networks:
+  radio:
+
+volumes:
+  ollama_models:

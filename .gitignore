@@ -1,0 +1,12 @@
+.env
+vps.env
+data/*.db
+data/*.db-*
+music/*
+!music/.gitkeep
+node_modules/
+__pycache__/
+*.pyc
+build.log
+ses*.json
+session-*.md

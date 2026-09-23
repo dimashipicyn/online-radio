@@ -1,0 +1,12 @@
+# Этап 2 заполнит реальными значениями из .env (см. deploy/)
+serverAddr = "YOUR_VPS_IP"
+serverPort = 7000
+
+auth.token = "CHANGE_ME_frp_token"
+
+[[proxies]]
+name = "radio-web"
+type = "tcp"
+localIP = "station"
+localPort = 3000
+remotePort = 3000
