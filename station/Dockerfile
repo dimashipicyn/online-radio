@@ -6,6 +6,8 @@ RUN sed -i 's|deb.debian.org|mirror.yandex.ru|g; s|security.debian.org|mirror.ya
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY package.json ./
+RUN npm install --omit=dev
 COPY src ./src
 
 USER node

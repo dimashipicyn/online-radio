@@ -25,16 +25,18 @@ services:
       start_period: 10s
     networks: [radio]
 
-  # ---------- TTS: Silero (этап 4 заполнит реализацию) ----------
+  # ---------- TTS: Silero v4 (русские голоса) ----------
   tts:
     build: ./tts
     restart: unless-stopped
+    volumes:
+      - tts_cache:/cache
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8001/health', timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request,json;assert json.load(urllib.request.urlopen('http://localhost:8001/health',timeout=4))['ready']"]
       interval: 15s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 30
+      start_period: 180s
     networks: [radio]
 
   # ---------- Ollama на GPU (запуск: --profile ai) ----------
@@ -104,3 +106,4 @@ networks:
 
 volumes:
   ollama_models:
+  tts_cache:

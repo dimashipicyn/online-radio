@@ -1,16 +1,32 @@
 # Радио Слом — онлайн-радио с AI-ведущим
 
-Локальный ПК (GPU) генерирует эфир: музыка + AI-диджей (Ollama + Silero TTS),
-стрим уходит на VPS (icecast), веб-управление через frp-туннель.
+Локальный ПК (GPU) генерирует эфир: музыка из `./music` + AI-диджей Валера
+(Ollama + Silero TTS), вставки и «звонки слушателей» с сайта, база знаний (RAG).
+Стрим уходит на icecast, веб-управление — через frp-туннель на VPS.
 
 ## Быстрый старт (дом)
 
 ```bash
 ./scripts/init-env.sh                       # создать .env со случайными паролями
 docker compose --profile local up -d --build
-# слушать: http://localhost:8000/radio.mp3
-# статус:  http://localhost:3000/health
+# веб-UI:  http://localhost:3000  (пароль из .env: ADMIN_PASSWORD)
+# стрим:   http://localhost:3000/radio.mp3 (или :8000 напрямую)
 ```
+
+Закиньте mp3/flac в `./music` — эфир подхватит сам (скан раз в 5 минут).
+Папка `./music/jingles/` — короткие джинглы: будут играться перед репликами DJ.
+
+## Что умеет
+
+- **Ротация** без зазывания одного и того же: случайно из 30% наименее игравших
+- **AI-ведущий** (Ollama): приветствие по времени суток, болтовня между треками,
+  темы от слушателей; реплика готовится, пока доигрывает текущий трек
+- **Голос** Silero v4 (рус.): ведущий и звонящие — разные голоса
+- **Звонки с сайта**: имя + текст → LLM оформляет → голосом другого спикера в эфир
+  приоритетной вставкой
+- **База знаний**: заметки на сайте → чанкуются → nomic-embed-text → DJ вплетает
+  релевантное в болтовню
+- **Веб-UI**: пароль, плеер, now playing, история, темы, звонки, KB, вкл/выкл DJ
 
 ## Профили compose
 
@@ -19,13 +35,15 @@ docker compose --profile local up -d --build
 | *(без профиля)* | station + tts |
 | `local` | + icecast дома (слушать `localhost:8000/radio.mp3`) |
 | `ai` | + ollama (GPU, nvidia-container-toolkit обязателен) |
-| `tunnel` | + frpc (после настройки VPS, этап 2) |
+| `tunnel` | + frpc (после настройки VPS) |
 
 Полный домашний запуск:
 
 ```bash
-docker compose --profile local --profile ai --profile tunnel up -d --build
+docker compose --profile local --profile ai up -d --build
 ```
+
+Первый старт с `ai`: контейнер `ollama-init` скачает модели (~5ГБ, один раз).
 
 ## Требования на хосте (WSL Ubuntu, разово)
 
@@ -37,13 +55,18 @@ sudo apt update && sudo apt install -y nvidia-container-toolkit
 sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker
 ```
 
+## Голоса Silero (в .env)
+
+`DJ_SPEAKER` — голос ведущего, `CALLER_SPEAKER` — голос звонящих.
+Варианты: `aidar | baya | kseniya | xenia | eugene | random`.
+
 ## Дорожная карта
 
-- [ ] Этап 1: скелет контейнеров, эфир с тишиной  ← **сейчас**
+- [x] Этап 1: скелет контейнеров, эфир с тишиной
 - [ ] Этап 2: VPS (icecast + frps), публичный URL
-- [ ] Этап 3: библиотека `./music`, ротация
-- [ ] Этап 4: AI-диджей (Ollama + Silero)
-- [ ] Этап 5: веб-UI v1
-- [ ] Этап 6: звонки слушателей
-- [ ] Этап 7: база знаний (RAG)
-- [ ] Этап 8: джинглы, ducking, полировка
+- [x] Этап 3: библиотека `./music`, ротация
+- [x] Этап 4: AI-диджей (Ollama + Silero)
+- [x] Этап 5: веб-UI v1
+- [x] Этап 6: звонки слушателей
+- [x] Этап 7: база знаний (RAG)
+- [x] Этап 8: джинглы, приветствия по времени суток

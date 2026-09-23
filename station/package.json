@@ -1,0 +1,10 @@
+{
+  "name": "radio-station",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Эфир-движок: плейлист, DJ, вставки, веб-UI",
+  "main": "src/index.js",
+  "dependencies": {
+    "better-sqlite3": "^11.5.0"
+  }
+}
