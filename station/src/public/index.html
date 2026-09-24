@@ -246,9 +246,12 @@ function renderSettings(schema, values) {
         </select></div>`;
       } else if (s.type === 'textarea') {
         html += `<div class="set-f"><label>${esc(s.label)}</label><textarea id="${id}" style="min-height:44px">${esc(v || '')}</textarea></div>`;
-      } else {
+      } else if (s.type === 'number') {
         html += `<div class="set-f"><label>${esc(s.label)}</label>
           <input id="${id}" type="number" min="${s.min}" max="${s.max}" step="${s.step}" value="${v}"></div>`;
+      } else {
+        html += `<div class="set-f"><label>${esc(s.label)}</label>
+          <input id="${id}" type="text" value="${esc(v ?? '')}"></div>`;
       }
     }
     html += '</div>';
