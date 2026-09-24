@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const log = require('./logger');
+const settings = require('./settings');
 
 /**
  * Декодирует трек в s16le 44.1k stereo через ffmpeg и отдаёт PCM по требованию.
