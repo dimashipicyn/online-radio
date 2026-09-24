@@ -4,4 +4,8 @@ uvicorn==0.32.*
 pydantic==2.*
 requests==2.*
 numpy==2.*
+# ruaccent тянет transformers без верхней границы; в 5.x сломан token_type_ids
+# (ONNX-модель ударений падает на словах вне словаря)
+transformers==4.57.*
+ruaccent
 torch==2.5.1+cpu

@@ -9,6 +9,7 @@ API:
 import io
 import logging
 import os
+import re
 import struct
 import wave
 from pathlib import Path
@@ -31,8 +32,9 @@ MODEL_URLS = [
 VOICES = {"aidar", "baya", "kseniya", "xenia", "eugene", "random"}
 SAMPLE_RATE = 48000
 
-app = FastAPI(title="radio-tts", version="1.0.0")
+app = FastAPI(title="radio-tts", version="1.1.0")
 _state = {"model": None, "ready": False, "error": None}
+_accent = None
 
 
 def _download_model() -> None:
@@ -71,6 +73,33 @@ def _load_model() -> None:
     log.info("silero готов, голоса: %s", ", ".join(sorted(VOICES)))
 
 
+def _load_accentizer() -> None:
+    """Ударения + омоографы (ruaccent). Не критично: упало — синтезируем без."""
+    global _accent
+    try:
+        from ruaccent import RUAccent
+        az = RUAccent()
+        try:
+            # models держим в volume, чтобы не качать при каждом пересоздании
+            az.load(omograph_model_size="turbo", use_dictionary=True, workdir="/cache/ruaccent")
+        except TypeError:
+            az.load(omograph_model_size="turbo", use_dictionary=True)
+        _accent = az
+        log.info("акцентуация загружена (ударения + омоографы)")
+    except Exception as e:  # noqa: BLE001
+        log.warning("акцентуация недоступна, синтез без ударений: %s", e)
+
+
+def _accentize(text: str) -> str:
+    if _accent is None:
+        return text
+    try:
+        return _accent.process_all(text)
+    except Exception as e:  # noqa: BLE001
+        log.warning("акцентуация упала, отдаю текст как есть: %s", e)
+        return text
+
+
 @app.on_event("startup")
 def startup() -> None:
     try:
@@ -79,6 +108,8 @@ def startup() -> None:
     except Exception as e:  # noqa: BLE001
         _state["error"] = str(e)
         log.error("старт не удался: %s", e)
+        return
+    _load_accentizer()
 
 
 class TtsRequest(BaseModel):
@@ -109,6 +140,25 @@ def health():
     }
 
 
+MAX_SEGMENT_CHARS = 280   # длиннее — Silero v4 начинает пропускать слова и фразы
+SEGMENT_GAP_SEC = 0.16    # пауза между предложениями (естественный ритм)
+
+
+def _split_sentences(text: str) -> list:
+    parts = [p.strip() for p in re.split(r"(?<=[.!?…])\s+", text) if p.strip()]
+    out = []
+    for p in parts:
+        # предложение длиннее лимита режем по запятым
+        while len(p) > MAX_SEGMENT_CHARS:
+            cut = p.rfind(",", 0, MAX_SEGMENT_CHARS)
+            if cut < 40:
+                cut = MAX_SEGMENT_CHARS
+            out.append(p[:cut].rstrip(","))
+            p = p[cut + 1:].lstrip()
+        out.append(p)
+    return out or [text]
+
+
 @app.post("/tts")
 def tts(req: TtsRequest):
     if not _state["ready"]:
@@ -120,11 +170,17 @@ def tts(req: TtsRequest):
         text = text[:1500]
     speaker = req.speaker if req.speaker in VOICES else "eugene"
     try:
-        audio = _state["model"].apply_tts(
-            text=text,
-            speaker=speaker,
-            sample_rate=SAMPLE_RATE,
-        )
+        text = _accentize(text)
+        # синтез по предложениям: одним куском Silero глотает слова на длинных текстах
+        gap = torch.zeros(int(SAMPLE_RATE * SEGMENT_GAP_SEC))
+        pieces = []
+        with torch.no_grad():
+            for seg in _split_sentences(text):
+                pieces.append(
+                    _state["model"].apply_tts(text=seg, speaker=speaker, sample_rate=SAMPLE_RATE)
+                )
+                pieces.append(gap)
+        audio = torch.cat(pieces)
     except Exception as e:  # noqa: BLE001
         log.error("tts failed: %s", e)
         raise HTTPException(500, "ошибка синтеза") from e

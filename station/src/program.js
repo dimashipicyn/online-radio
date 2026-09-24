@@ -178,9 +178,13 @@ class Program {
     const st = ci.state;
     const buf = st.fifo.readExact(CHUNK_BYTES);
     if (buf) return buf;
-    if (st.ended && st.fifo.length < CHUNK_BYTES) {
-      // хвост вставки — добьём тишиной и переключимся
-      if (st.fifo.length > 0) st.fifo.drain(st.fifo.length);
+    if (st.ended) {
+      if (st.fifo.length > 0) {
+        // хвост вставки: отдаём целиком (не выбрасываем!), добив тишиной до тика
+        const out = Buffer.alloc(CHUNK_BYTES);
+        st.fifo.readExact(st.fifo.length).copy(out);
+        return out;
+      }
       const done = this._insertDone;
       this._insertDone = null;
       if (done) done();
