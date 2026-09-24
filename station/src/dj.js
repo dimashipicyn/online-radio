@@ -36,7 +36,7 @@ function personaSystem(kind) {
   return base.join(' ');
 }
 
-/** Сценарий диалога «звонящий ↔ Валера» в JSON. 4–6 реплик, ~35–45 секунд эфира. */
+/** Сценарий диалога «звонящий ↔ Валера» в JSON. Валера начинает и представляет звонящего. ~35–45 секунд эфира. */
 /** Достаёт реплики из ответа LLM: сначала целиком, при битом JSON — спасаем отдельные объекты. */
 function parseDialogue(raw) {
   const m = raw.match(/\[[\s\S]*\]/);
@@ -53,13 +53,15 @@ function parseDialogue(raw) {
   return items;
 }
 
-async function generateDialogue(ctx) {
+async function generateDialogue(ctx, call = {}) {
+  const who = call.name || 'слушатель';
+  const about = call.text ? ` Тема: «${call.text}».` : '';
   const prompt = `${ctx}
 
 Оформи это как ДИАЛОГ звонка в студию. Верни ТОЛЬКО JSON-массив, без markdown и пояснений:
-[{"s":"caller","text":"<реплика звонящего, 1-2 фразы>"},{"s":"dj","text":"<ответ Валеры, 1-3 фразы>"}]
+[{"s":"dj","text":"<Валера снимает трубку и представляет звонящего: кто на линии и о чём пойдёт речь, 1-3 фразы>"},{"s":"caller","text":"<реплика звонящего>"},{"s":"dj","text":"<ответ Валеры>"},...]
 Правила:
-- 4-6 реплик, чередуй caller и dj, первый — caller
+- 5-7 реплик, чередуй dj и caller, ПЕРВЫЙ — dj: Валера представляет звонящего ${who} и тему.${about}
 - Реплики живые, разговорные, Валера дерзкий и со стихийным матом, звонящий простым языком
 - Числа, даты и время — словами, без цифр и латиницы
 - Валера должен развить тему звонка, добавить своё мнение и съязвить
@@ -78,7 +80,17 @@ async function generateDialogue(ctx) {
       .filter((l) => l && typeof l.text === 'string' && l.text.trim())
       .map((l) => ({ speaker: l.s === 'dj' ? 'dj' : 'caller', text: l.text.trim().slice(0, 400) }))
       .filter((l) => l.text);
-    if (lines.length >= 2) return lines;
+    if (lines.length >= 2) {
+      // страховка: эфир всегда открывает Валера — представляющий звонящего
+      if (lines[0].speaker !== 'dj') {
+        const intro = call.text
+          ? `На линии ${who}! Про «${call.text}» — давай, выкладывай, слушаю.`
+          : `На линии ${who}! Слушаю тебя, давай.`;
+        lines.unshift({ speaker: 'dj', text: intro.slice(0, 400) });
+        log.info('dj: LLM начал со звонящего — вставил представление от Валеры');
+      }
+      return lines;
+    }
     lastErr = new Error(`пригодных реплик ${lines.length}`);
   }
   throw lastErr;
@@ -117,7 +129,7 @@ async function generateText(kind, ctx) {
  * Готовит голосовую вставку. Возвращает insert | null.
  * kind: greeting | topic | chatter | call
  */
-async function prepareBreak({ kind, topic, nextTrack, prevTrack, callerSpeaker } = {}) {
+async function prepareBreak({ kind, topic, nextTrack, prevTrack, callerSpeaker, call } = {}) {
   if (!(await ollama.healthy())) {
     log.warn('dj: ollama недоступна, реплика отменена');
     return null;
@@ -127,7 +139,7 @@ async function prepareBreak({ kind, topic, nextTrack, prevTrack, callerSpeaker }
     let insert = null;
     if (kind === 'call') {
       // диалог «звонящий ↔ Валера»: LLM-сценарий -> озвучка каждой реплики своим голосом
-      const lines = await generateDialogue(topic);
+      const lines = await generateDialogue(topic, call);
       insert = await prepareDialogueInsert(lines);
       text = lines.map((l) => (l.speaker === 'dj' ? '🔧 ' : '📞 ') + l.text).join('\n');
     } else {

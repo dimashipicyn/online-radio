@@ -211,8 +211,12 @@ class Program {
 
   /** Принудительная подготовка звонка (вызывает web.js). */
   async makeCall({ name, text }) {
-    const prompt = `Звонок слушателя ${name || 'аноним'}: «${text}»`;
-    const insert = await dj.prepareBreak({ kind: 'call', topic: prompt });
+    const who = name || 'аноним';
+    const insert = await dj.prepareBreak({
+      kind: 'call',
+      topic: `Звонок слушателя ${who}: «${text}»`,
+      call: { name: who, text },
+    });
     this.enqueueInsert(insert, { priority: true });
     return insert != null;
   }
