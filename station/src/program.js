@@ -15,11 +15,13 @@ const BYTES_PER_SEC = sampleRate * channels * 2;
 const CHUNK_BYTES = (BYTES_PER_SEC * 100) / 1000; // 17640 — тик микшера 100мс
 const PREBUFFER_BYTES = BYTES_PER_SEC * 3;
 
-// --- оверлей: вставка поверх затухающего финала трека ---
+// --- оверлей: вставка поверх приглушённого финала трека ---
 const OVERLAY_TRIGGER_SEC = 20; // за сколько секунд до конца трека начинаем говорить поверх
 const OVERLAY_MIN_SEC = 8;      // если меньше — не успеваем, играем вставку после трека как обычно
-const MUSIC_FADE_MIN = 0.10;    // до какой доли громкости затухает музыка
-const INSERT_START_GAIN = 0.25; // с какой доли громкости входит голос
+const DUCK_RAMP_SEC = 1.5;      // за сколько секунд музыка проваливается вниз
+const MUSIC_DUCK_LEVEL = 0.18;  // уровень приглушённой музыки под голосом
+const INSERT_START_GAIN = 0.40; // с какой доли громкости входит голос
+const RELEASE_RAMP_SEC = 1.5;   // возврат громкости музыки после вставки
 
 /**
  * Программный директор эфира. Микшер дёргает program.readChunk() каждый тик.
@@ -33,6 +35,7 @@ class Program {
     this.inserts = [];                // очередь {path, bytes, text, kind, speaker}
     this.currentInsert = null;        // {stream, fifo, served, ...}
     this.overlay = null;              // {insert, buf, pos, ...} — вставка поверх финала трека
+    this.duckRelease = null;          // плавный возврат громкости музыки после оверлея
     this.pendingAfterOverlay = null;  // трек, закончившийся во время оверлея
     this.preparingBreak = false;
     this.breakCounter = 0;
@@ -238,7 +241,6 @@ class Program {
       insert,
       buf,
       pos: 0,
-      musicTotal: Math.max(CHUNK_BYTES, Math.round(p.remainingSec * BYTES_PER_SEC)),
       musicConsumed: 0,
       savedNowPlaying: this.nowPlaying,
     };
@@ -260,12 +262,12 @@ class Program {
     const take = Math.min(st.buf.length - st.pos, CHUNK_BYTES);
     st.buf.copy(out, 0, st.pos, st.pos + take);
     st.pos += take;
-    // музыка с плавным затуханием — «Валера пиздит, трек на фоне доигрывает»
+    // музыка быстро утапливается и остаётся тихим фоном — «Валера пиздит, трек на фоне доигрывает»
     const music = this.player ? this.player.readExact(CHUNK_BYTES) : null;
     if (music) {
       st.musicConsumed += CHUNK_BYTES;
-      const t = Math.min(1, st.musicConsumed / st.musicTotal); // 0..1 по остатку трека
-      const musicGain = 1 - t * (1 - MUSIC_FADE_MIN);
+      const t = Math.min(1, st.musicConsumed / (DUCK_RAMP_SEC * BYTES_PER_SEC)); // дакинг за ~1.5с
+      const musicGain = 1 - t * (1 - MUSIC_DUCK_LEVEL);
       const insertGain = INSERT_START_GAIN + t * (1 - INSERT_START_GAIN);
       for (let i = 0; i < CHUNK_BYTES; i += 2) {
         let v = Math.round(music.readInt16LE(i) * musicGain + out.readInt16LE(i) * insertGain);
@@ -279,6 +281,7 @@ class Program {
       this.overlay = null;
       if (this.player) {
         this.nowPlaying = st.savedNowPlaying; // трек ещё доигрывает
+        this.duckRelease = { consumed: 0, total: RELEASE_RAMP_SEC * BYTES_PER_SEC, from: MUSIC_DUCK_LEVEL };
       } else {
         const done = this.pendingAfterOverlay;
         this.pendingAfterOverlay = null;
@@ -305,7 +308,20 @@ class Program {
     if (!p) return null;
     // пребуфер только пока декодер жив: у доигрывающего трека добираем хвост
     if (p.alive && p.buffered < PREBUFFER_BYTES && p.remainingSec > 1) return null;
-    return p.readExact(CHUNK_BYTES);
+    const chunk = p.readExact(CHUNK_BYTES);
+    if (!chunk) return null;
+    // после оверлея музыка плавно возвращается к полной громкости
+    if (this.duckRelease) {
+      const r = this.duckRelease;
+      r.consumed += CHUNK_BYTES;
+      const t = Math.min(1, r.consumed / r.total);
+      const g = r.from + t * (1 - r.from);
+      for (let i = 0; i < chunk.length; i += 2) {
+        chunk.writeInt16LE(Math.round(chunk.readInt16LE(i) * g), i);
+      }
+      if (t >= 1) this.duckRelease = null;
+    }
+    return chunk;
   }
 
   /** Принудительная подготовка звонка (вызывает web.js). */
