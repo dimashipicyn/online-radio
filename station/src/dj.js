@@ -35,6 +35,37 @@ function personaSystem(kind) {
   return base.join(' ');
 }
 
+/** Схема structured outputs: массив реплик диалога, ничего лишнего. */
+const DIALOGUE_FORMAT = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      s: { type: 'string', enum: ['caller', 'dj'] },
+      text: { type: 'string' },
+    },
+    required: ['s', 'text'],
+  },
+};
+
+/** Разбор ответа LLM в массив реплик: schema-режим даёт валидный JSON, но на всякий случай чиним. */
+function parseDialogue(raw) {
+  const cleaned = raw.replace(/```(?:json)?/gi, '').trim();
+  try {
+    const arr = JSON.parse(cleaned);
+    if (Array.isArray(arr)) return arr;
+  } catch { /* ниже — запасной путь */ }
+  // достаём реплики по одной: битые пропускаем, целые спасаем
+  const out = [];
+  for (const m of cleaned.match(/\{[^{}]*\}/g) || []) {
+    try {
+      const o = JSON.parse(m);
+      if (o && typeof o.text === 'string') out.push(o);
+    } catch { /* мусор — мимо */ }
+  }
+  return out;
+}
+
 /** Сценарий диалога «звонящий ↔ Валера» в JSON. 4–6 реплик, ~35–45 секунд эфира. */
 async function generateDialogue(ctx) {
   const prompt = `${ctx}
@@ -51,11 +82,9 @@ async function generateDialogue(ctx) {
       { role: 'system', content: personaSystem('call') },
       { role: 'user', content: prompt },
     ],
-    { temperature: 1.0, maxTokens: 600 }
+    { temperature: 1.0, maxTokens: 600, format: DIALOGUE_FORMAT }
   );
-  const m = raw.match(/\[[\s\S]*\]/);
-  if (!m) throw new Error('в ответе нет JSON-массива');
-  const arr = JSON.parse(m[0]);
+  const arr = parseDialogue(raw);
   const lines = arr
     .filter((l) => l && typeof l.text === 'string' && l.text.trim())
     .map((l) => ({ speaker: l.s === 'dj' ? 'dj' : 'caller', text: l.text.trim().slice(0, 400) }))

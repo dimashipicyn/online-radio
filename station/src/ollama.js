@@ -15,7 +15,7 @@ async function healthy() {
   }
 }
 
-async function chat(messages, { temperature = 0.9, maxTokens = 300 } = {}) {
+async function chat(messages, { temperature = 0.9, maxTokens = 300, format } = {}) {
   const r = await fetch(`${OLLAMA.host}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -23,6 +23,8 @@ async function chat(messages, { temperature = 0.9, maxTokens = 300 } = {}) {
       model: OLLAMA.model,
       messages,
       stream: false,
+      // format: JSON-схема (structured outputs) — модель физически не сможет выдать невалидный JSON
+      ...(format ? { format } : {}),
       options: { temperature, num_predict: maxTokens },
     }),
     signal: AbortSignal.timeout(CHAT_TIMEOUT),
