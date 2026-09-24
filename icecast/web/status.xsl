@@ -70,7 +70,7 @@
           </xsl:choose></b></div>
       </div>
       <div class="links">
-        <a class="main" href="{@mount}">▶ Слушать</a>
+        <a class="main listen" href="{@mount}" data-src="{@mount}">▶ Слушать</a>
         <a href="{@mount}.m3u">Плейлист .m3u</a>
       </div>
     </div>
@@ -86,7 +86,29 @@
     <span class="muted">icecast2</span>
   </footer>
 </div>
+<audio id="player" preload="none" style="display:none"></audio>
 <script>
+  var pl = document.getElementById('player');
+  document.querySelectorAll('a.listen').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      e.preventDefault();
+      var src = window.location.origin + a.getAttribute('data-src');
+      if (pl.getAttribute('data-on') === '1') {
+        if (pl.src === src) {
+          pl.pause();
+          pl.setAttribute('data-on', '0');
+          a.textContent = '▶ Слушать';
+          return;
+        }
+        document.querySelectorAll('a.listen').forEach(function (x) { x.textContent = '▶ Слушать'; });
+      }
+      document.querySelectorAll('a.listen').forEach(function (x) { x.textContent = '▶ Слушать'; });
+      pl.src = src;
+      pl.setAttribute('data-on', '1');
+      pl.play();
+      a.textContent = '⏸ Играет…';
+    });
+  });
   document.getElementById('uiLink').href =
     window.location.protocol + '//' + window.location.hostname + ':3000';
 </script>
