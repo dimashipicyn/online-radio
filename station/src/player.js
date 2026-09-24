@@ -11,13 +11,14 @@ const log = require('./logger');
  * по водяным знакам буфера (pipe backpressure).
  */
 class TrackPlayer {
-  constructor(track, { sampleRate, channels, prebufferSec = 3, maxBufferSec = 10, bytesPerSec }) {
+  constructor(track, { sampleRate, channels, prebufferSec = 3, maxBufferSec = 10, bytesPerSec, leadSec = 30 }) {
     this.track = track;
     this.sampleRate = sampleRate;
     this.channels = channels;
     this.bytesPerSec = bytesPerSec;
     this.prebufferBytes = prebufferSec * bytesPerSec;
     this.maxBytes = maxBufferSec * bytesPerSec;
+    this.leadSec = leadSec;
 
     this.fifo = { parts: [], length: 0 };
     this.decodedBytes = 0;
@@ -85,7 +86,7 @@ class TrackPlayer {
       if (this.onReady) this.onReady(this);
     }
     if (this.fifo.length > this.maxBytes) this.ff && this.ff.stdout.pause();
-    if (!this.leadFired && this.remainingSec <= 30) {
+    if (!this.leadFired && this.remainingSec <= Math.max(10, this.leadSec)) {
       this.leadFired = true;
       if (this.onAlmostDone) this.onAlmostDone(this, this.remainingSec);
     }
