@@ -12,8 +12,8 @@ const config = require('./config');
 const VOICES = ['aidar', 'baya', 'kseniya', 'eugene', 'xenia'];
 
 const SCHEMA = [
-  { key: 'dj.name',          type: 'text',     group: 'Голос и DJ', label: 'Имя DJ' },
-  { key: 'dj.radioName',     type: 'text',     group: 'Голос и DJ', label: 'Название радио' },
+  { key: 'dj.name',          type: 'text',     group: 'Голос и DJ', label: 'Имя DJ', required: true },
+  { key: 'dj.radioName',     type: 'text',     group: 'Голос и DJ', label: 'Название радио', required: true },
   { key: 'dj.style',         type: 'textarea', group: 'Голос и DJ', label: 'Стиль персонажа (пусто — стандартный Валера)' },
   { key: 'dj.speaker',       type: 'select',   group: 'Голос и DJ', label: 'Голос DJ', options: VOICES },
   { key: 'dj.rate',          type: 'number',   group: 'Голос и DJ', label: 'Темп речи DJ (1 = норма)', min: 0.5, max: 2, step: 0.05 },
@@ -36,7 +36,7 @@ const SCHEMA = [
   { key: 'audio.gapMinMs',       type: 'number', group: 'Звук',     label: 'Пауза в диалогах, мин (мс)', min: 100, max: 1500, step: 25 },
   { key: 'audio.gapMaxMs',       type: 'number', group: 'Звук',     label: 'Пауза в диалогах, макс (мс)', min: 100, max: 1500, step: 25 },
 
-  { key: 'ollama.model',     type: 'text',     group: 'Система',    label: 'Модель Ollama' },
+  { key: 'ollama.model',     type: 'text',     group: 'Система',    label: 'Модель Ollama (из скачанных)', required: true },
 ];
 
 // путь 'dj.speaker' -> {obj, prop} внутри config
@@ -66,6 +66,7 @@ function coerce(s, v) {
     return Math.min(s.max, Math.max(s.min, n));
   }
   const str = String(v ?? '');
+  if (s.required && !str.trim()) throw new Error(`«${s.label}»: не может быть пустым`);
   if (s.type === 'select' && !s.options.includes(str)) {
     throw new Error(`«${s.label}»: допустимо ${s.options.join(', ')}`);
   }

@@ -275,10 +275,10 @@ function collectSettings() {
 $('settingsSave').onclick = async () => {
   try {
     const r = await api('/api/settings', { method:'POST', body: JSON.stringify(collectSettings()) });
-    const n = Object.keys(r.applied || {}).length;
-    $('settingsMsg').textContent = `сохранили ${n} ✓`;
-  } catch (e) { $('settingsMsg').textContent = 'ошибка сохранения'; }
-  setTimeout(() => { $('settingsMsg').textContent = ''; }, 3000);
+    if (!r.ok) { $('settingsMsg').textContent = r.error || 'ошибка'; return; }
+    $('settingsMsg').textContent = `сохранили ${Object.keys(r.applied || {}).length} ✓`;
+  } catch { $('settingsMsg').textContent = 'ошибка сохранения'; }
+  setTimeout(() => { $('settingsMsg').textContent = ''; }, 4000);
 };
 
 $('settingsReset').onclick = async () => {
