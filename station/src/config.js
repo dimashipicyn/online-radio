@@ -4,6 +4,10 @@ const num = (v, d) => {
   const n = Number(v);
   return Number.isFinite(n) && n > 0 ? n : d;
 };
+const numAny = (v, d) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : d;
+};
 const bool = (v, d) => (v === undefined ? d : /^(1|true|yes|on)$/i.test(v));
 
 const config = {
@@ -35,6 +39,18 @@ const config = {
     leadSec: num(process.env.DJ_LEAD_SEC, 30),      // за сколько до конца трека готовить реплику
     chatterChance: Number(process.env.DJ_CHATTER_CHANCE ?? 0.4), // шанс болтовни без темы
     maxTokens: num(process.env.DJ_MAX_TOKENS, 400),
+    rate: numAny(process.env.DJ_RATE, 1.0),           // темп речи DJ (1 = норма)
+    callerRate: numAny(process.env.CALLER_RATE, 1.0), // темп речи звонящего
+  },
+  audio: { // ручки обработки голоса/эфира — крутятся живо из GUI (панель Настройки)
+    loudnessTarget: numAny(process.env.LOUDNESS_TARGET, -16), // LUFS
+    maxGainDb: 8,      // предел гейна нормализации
+    highpass: 70,      // Гц, 0 = выкл
+    lowpass: 9000,     // Гц, страховка от ВЧ-звона вокодера
+    deesser: 0.3,      // 0 = выкл
+    gapMinMs: 250,     // паузы в диалогах
+    gapMaxMs: 500,
+    musicVolume: 1.0,  // громкость музыки относительно голоса
   },
   kb: { topK: num(process.env.KB_TOP_K, 3), chunkChars: 600 },
   paths: { music: '/music', data: process.env.DATA_DIR || '/data' },

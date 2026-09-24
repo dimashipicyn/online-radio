@@ -138,7 +138,8 @@ async function prepareBreak({ kind, topic, nextTrack, prevTrack, callerSpeaker }
     if (!insert && text.length > 1200) text = text.slice(0, 1200).replace(/\s+\S*$/, '') + '...';
     if (!insert) {
       const speaker = kind === 'call' ? callerSpeaker || DJ.callerSpeaker : DJ.speaker;
-      insert = await prepareInsert({ text, speaker, kind });
+      const rate = kind === 'call' ? Number(DJ.callerRate) || 1 : Number(DJ.rate) || 1;
+      insert = await prepareInsert({ text, speaker, kind, rate });
     }
     if (insert) insert.text = text || insert.text;
     return insert;

@@ -11,6 +11,7 @@ const INSERT_DIR = path.join(config.paths.data, 'inserts');
 fs.mkdirSync(INSERT_DIR, { recursive: true });
 
 const TTS = config.tts;
+const settings = require('./settings');
 
 const BYTES_PER_SEC = 44100 * 2 * 2; // s16le stereo 44.1k
 
@@ -31,22 +32,25 @@ function ffRun(args) {
   });
 }
 
-/** Статичная обработка голоса: обрезка тишины по краям, срез гула, страховочный срез ВЧ-звона вокодера, деэссер. */
-const VOICE_AF = [
-  'silenceremove=start_periods=1:start_threshold=-45dB',
-  'highpass=f=70',
-  'lowpass=f=9000',
-  'deesser=i=0.3',
-  'equalizer=f=3500:t=q:w=1.2:g=-1',
-  'areverse,silenceremove=start_periods=1:start_threshold=-45dB,areverse',
-].join(',');
+/** Цепочка обработки голоса, собирается из живых настроек (панель Настройки). */
+function voiceAF() {
+  const af = ['silenceremove=start_periods=1:start_threshold=-45dB'];
+  const hp = Number(settings.get('audio.highpass')) || 0;
+  if (hp > 0) af.push(`highpass=f=${hp}`);
+  const lp = Number(settings.get('audio.lowpass')) || 0;
+  if (lp > 0 && lp < 20000) af.push(`lowpass=f=${lp}`);
+  const de = Number(settings.get('audio.deesser')) || 0;
+  if (de > 0) af.push(`deesser=i=${de}`);
+  af.push('areverse,silenceremove=start_periods=1:start_threshold=-45dB,areverse');
+  return af.join(',');
+}
 
-/** POST /tts у сайдкара -> WAV (48k mono). */
-async function synthesize(text, speaker) {
+/** POST /tts у сайдкара -> WAV (48k mono). rate — темп речи (1 = норма). */
+async function synthesize(text, speaker, rate = 1.0) {
   const r = await fetch(`${TTS.host}/tts`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, speaker }),
+    body: JSON.stringify({ text, speaker, rate: Number(rate) || 1.0 }),
     signal: AbortSignal.timeout(120_000),
   });
   if (!r.ok) throw new Error(`tts ${r.status}: ${(await r.text()).slice(0, 120)}`);
@@ -58,7 +62,7 @@ async function wavToRaw(wavPath, rawPath) {
   await ffRun([
     '-hide_banner', '-loglevel', 'error',
     '-i', wavPath,
-    '-af', VOICE_AF,
+    '-af', voiceAF(),
     '-f', 's16le', '-ar', '44100', '-ac', '2',
     '-y', rawPath,
   ]);
@@ -83,13 +87,15 @@ async function measureRawLoudness(rawPath) {
 }
 
 /**
- * Выравнивает громкость ГОТОВОЙ вставки одним линейным гейном до -16 LUFS.
- * Никакой динамики: динамический loudnorm на коротких вставках «дышит» — это и есть шипение.
+ * Выравнивает громкость ГОТОВОЙ вставки одним линейным гейном (без динамики —
+ * динамический loudnorm на коротких вставках «дышит» и шипит).
  */
 async function normalizeRaw(rawPath) {
+  const target = Number(settings.get('audio.loudnessTarget'));
+  const maxGain = Number(settings.get('audio.maxGainDb')) || 8;
   const inputI = await measureRawLoudness(rawPath);
   if (inputI == null) return;
-  const gain = Math.max(-8, Math.min(8, -16 - inputI));
+  const gain = Math.max(-maxGain, Math.min(maxGain, target - inputI));
   if (Math.abs(gain) < 0.5) return;
   const tmp = `${rawPath}.norm`;
   await ffRun([
@@ -106,10 +112,10 @@ async function normalizeRaw(rawPath) {
  * Готовит вставку: текст -> TTS -> raw PCM файл.
  * Возвращает { id, path, text, bytes, speaker } | null (TTS недоступен).
  */
-async function prepareInsert({ text, speaker, kind }) {
+async function prepareInsert({ text, speaker, kind, rate }) {
   const id = crypto.randomBytes(5).toString('hex');
   try {
-    const wav = await synthesize(text, speaker);
+    const wav = await synthesize(text, speaker, rate);
     const wavPath = path.join(INSERT_DIR, `${id}.wav`);
     const rawPath = path.join(INSERT_DIR, `${id}.raw`);
     fs.writeFileSync(wavPath, wav);
@@ -130,16 +136,19 @@ async function wavFileToRawBuffer(wavPath) {
   const { stdout } = await ffRun([
     '-hide_banner', '-loglevel', 'error',
     '-i', wavPath,
-    '-af', VOICE_AF,
+    '-af', voiceAF(),
     '-f', 's16le', '-ar', '44100', '-ac', '2',
     '-y', 'pipe:1',
   ]);
   return stdout;
 }
 
-/** Пауза между репликами диалога: рандом 250–500мс вместо фиксированной — звучит живее. */
+/** Пауза между репликами диалога: рандом в заданных пределах — звучит живее. */
 function dialogueGapBytes() {
-  const ms = 250 + Math.floor(Math.random() * 251);
+  let lo = Number(settings.get('audio.gapMinMs')) || 250;
+  let hi = Number(settings.get('audio.gapMaxMs')) || 500;
+  if (hi < lo) [lo, hi] = [hi, lo];
+  const ms = lo + Math.floor(Math.random() * (hi - lo + 1));
   const bytes = Math.round((BYTES_PER_SEC * ms) / 1000);
   // ОБЯЗАТЕЛЬНО кратно 4 байтам (сэмпл s16le stereo): нечётный размер сдвигает
   // выравнивание всего последующего PCM и превращает эфир в белый шум
@@ -157,8 +166,10 @@ async function prepareDialogueInsert(lines) {
   const parts = [];
   try {
     for (let i = 0; i < lines.length; i++) {
-      const speaker = lines[i].speaker === 'dj' ? config.dj.speaker : config.dj.callerSpeaker;
-      const wav = await synthesize(lines[i].text, speaker);
+      const isDj = lines[i].speaker === 'dj';
+      const speaker = isDj ? config.dj.speaker : config.dj.callerSpeaker;
+      const rate = isDj ? settings.get('dj.rate') : settings.get('dj.callerRate');
+      const wav = await synthesize(lines[i].text, speaker, rate);
       const tmp = path.join(INSERT_DIR, `${id}_${i}.wav`);
       fs.writeFileSync(tmp, wav);
       const pcm = await wavFileToRawBuffer(tmp);

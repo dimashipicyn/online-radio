@@ -58,11 +58,15 @@ class TrackPlayer {
       '-hide_banner', '-loglevel', 'error',
       '-i', this.track.path,
       '-vn',
+    ];
+    const mv = Number(settings.get('audio.musicVolume'));
+    if (Number.isFinite(mv) && mv > 0 && mv !== 1) args.push('-af', `volume=${mv}`);
+    args.push(
       '-f', 's16le',
       '-ar', String(this.sampleRate),
       '-ac', String(this.channels),
       'pipe:1',
-    ];
+    );
     log.info(`player: играю «${this.track.artist || '?'} — ${this.track.title || path.basename(this.track.path)}»`);
     const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
     this.ff = ff;

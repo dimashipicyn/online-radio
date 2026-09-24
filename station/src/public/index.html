@@ -44,6 +44,12 @@
   #login h1 { margin-bottom:18px; }
   .err { color:#ff6b6b; font-size:13px; min-height:18px; margin-bottom:8px; }
   .muted { color:var(--dim); font-size:12px; }
+  h3.set-h { font-size:12px; text-transform:uppercase; color:var(--acc); letter-spacing:1px; margin:14px 0 8px; }
+  .set-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; }
+  @media (max-width:720px){ .set-grid { grid-template-columns:1fr; } }
+  .set-f label { display:block; font-size:12px; margin-bottom:4px; }
+  .set-f select { width:100%; background:#0f1216; border:1px solid var(--line); border-radius:8px; color:var(--txt); padding:9px 11px; font:inherit; }
+  .set-f.bool { display:flex; align-items:center; justify-content:space-between; gap:10px; background:#0f1216; border:1px solid var(--line); border-radius:8px; padding:9px 11px; }
 </style>
 </head>
 <body>
@@ -94,6 +100,18 @@
   </div>
 
   <div class="card" style="margin-top:16px">
+    <h2>⚙️ Настройки эфира <span class="muted">— применяются сразу, без рестарта</span></h2>
+    <div id="settingsBody"><div class="muted">загрузка…</div></div>
+    <div class="row" style="margin-top:12px">
+      <div>
+        <button id="settingsSave">Сохранить</button>
+        <button id="settingsReset" class="ghost" style="color:var(--txt)">Сбросить к дефолтам</button>
+      </div>
+      <span class="msg" id="settingsMsg"></span>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
     <h2>История эфира</h2>
     <ul class="hist" id="hist"></ul>
   </div>
@@ -130,8 +148,8 @@ async function boot() {
   $('loginName').textContent = st.radioName;
   $('djName').textContent = st.djName;
   $('djToggle').classList.toggle('on', st.program.djEnabled);
-  refresh();
-  setInterval(refresh, 5000);
+  loadSettings();
+  refresh();  setInterval(refresh, 5000);
 }
 
 async function refresh() {
@@ -196,6 +214,75 @@ $('djToggle').onclick = async () => {
   const on = !$('djToggle').classList.contains('on');
   await api('/api/dj', { method:'POST', body: JSON.stringify({ enabled: on }) });
   $('djToggle').classList.toggle('on', on);
+};
+
+// ---------- настройки эфира ----------
+let setSchema = [];
+const fieldId = (key) => 'set_' + key.replace(/\./g, '__');
+
+async function loadSettings() {
+  try {
+    const r = await api('/api/settings');
+    setSchema = r.schema || [];
+    renderSettings(r.schema || [], r.values || {});
+  } catch { /* не авторизованы — покажет логин */ }
+}
+
+function renderSettings(schema, values) {
+  const groups = {};
+  for (const s of schema) (groups[s.group] = groups[s.group] || []).push(s);
+  let html = '';
+  for (const [g, items] of Object.entries(groups)) {
+    html += `<h3 class="set-h">${esc(g)}</h3><div class="set-grid">`;
+    for (const s of items) {
+      const id = fieldId(s.key);
+      const v = values[s.key];
+      if (s.type === 'bool') {
+        html += `<div class="set-f bool"><span class="muted">${esc(s.label)}</span>
+          <div class="toggle ${v ? 'on' : ''}" id="${id}"></div></div>`;
+      } else if (s.type === 'select') {
+        html += `<div class="set-f"><label>${esc(s.label)}</label><select id="${id}">
+          ${s.options.map((o) => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}
+        </select></div>`;
+      } else if (s.type === 'textarea') {
+        html += `<div class="set-f"><label>${esc(s.label)}</label><textarea id="${id}" style="min-height:44px">${esc(v || '')}</textarea></div>`;
+      } else {
+        html += `<div class="set-f"><label>${esc(s.label)}</label>
+          <input id="${id}" type="number" min="${s.min}" max="${s.max}" step="${s.step}" value="${v}"></div>`;
+      }
+    }
+    html += '</div>';
+  }
+  $('settingsBody').innerHTML = html;
+  for (const el of document.querySelectorAll('#settingsBody .toggle')) {
+    el.onclick = () => el.classList.toggle('on');
+  }
+}
+
+function collectSettings() {
+  const patch = {};
+  for (const s of setSchema) {
+    const el = $(fieldId(s.key));
+    if (!el) continue;
+    patch[s.key] = s.type === 'bool' ? el.classList.contains('on') : el.value;
+  }
+  return patch;
+}
+
+$('settingsSave').onclick = async () => {
+  try {
+    const r = await api('/api/settings', { method:'POST', body: JSON.stringify(collectSettings()) });
+    const n = Object.keys(r.applied || {}).length;
+    $('settingsMsg').textContent = `сохранили ${n} ✓`;
+  } catch (e) { $('settingsMsg').textContent = 'ошибка сохранения'; }
+  setTimeout(() => { $('settingsMsg').textContent = ''; }, 3000);
+};
+
+$('settingsReset').onclick = async () => {
+  const r = await api('/api/settings/reset', { method:'POST' });
+  renderSettings(r.schema || [], r.values || {});
+  $('settingsMsg').textContent = 'сброшено к дефолтам';
+  setTimeout(() => { $('settingsMsg').textContent = ''; }, 3000);
 };
 
 (async () => {

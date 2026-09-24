@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const log = require('./logger');
+const settings = require('./settings');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const INDEX_HTML = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'));
@@ -89,6 +90,16 @@ function makeRoutes({ getStatus, program, kb, library, db }) {
     'POST /api/dj': (_req, res, body) => {
       const v = program.setDjEnabled(body.enabled);
       send(res, 200, { enabled: v });
+    },
+
+    'GET /api/settings': (_req, res) => send(res, 200, settings.getAll()),
+    'POST /api/settings': (_req, res, body) => {
+      try { send(res, 200, { ok: true, applied: settings.set(body) }); }
+      catch (e) { send(res, 400, { error: e.message }); }
+    },
+    'POST /api/settings/reset': (_req, res) => {
+      settings.reset();
+      send(res, 200, { ok: true, ...settings.getAll() });
     },
   };
 
