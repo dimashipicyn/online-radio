@@ -13,7 +13,7 @@ services:
       OLLAMA_HOST: http://ollama:11434
       TTS_HOST: http://tts:8001
     volumes:
-      - ./music:/music:ro
+      - ${MUSIC_DIR:-./music}:/music:ro
       - ./data:/data
     ports:
       - "${WEB_PORT:-3000}:3000"
@@ -47,6 +47,8 @@ services:
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
+      # WSL: большие cudaMalloc падают — unified memory обходит лимит
+      - GGML_CUDA_ENABLE_UNIFIED_MEMORY=1
     # WSL: libcuda живёт в папке драйвера, добавляем её в пути загрузки ($$ — экранирование от compose)
     entrypoint: ["/bin/sh", "-c", "for d in /usr/lib/wsl/drivers/*/; do LD_LIBRARY_PATH=\"$$d:$${LD_LIBRARY_PATH}\"; done; export LD_LIBRARY_PATH; exec /bin/ollama serve"]
     volumes:

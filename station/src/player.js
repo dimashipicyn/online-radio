@@ -139,7 +139,8 @@ class TrackPlayer {
   }
 }
 
-/** Список аудиофайлов в папке (рекурсивно). */
+/** Список аудиофайлов в папке (рекурсивно). На 9p-монтах (диски Windows в WSL)
+ * dirent может приходить с неизвестным типом — уточняем через stat. */
 function listAudio(dir, exts) {
   const out = [];
   const walk = (d) => {
@@ -148,7 +149,11 @@ function listAudio(dir, exts) {
     for (const e of entries) {
       if (e.name.startsWith('.')) continue;
       const p = path.join(d, e.name);
-      if (e.isDirectory()) walk(p);
+      let isDir = e.isDirectory();
+      if (!isDir && !e.isFile()) {
+        try { isDir = fs.statSync(p).isDirectory(); } catch { continue; }
+      }
+      if (isDir) walk(p);
       else if (exts.has(path.extname(e.name).toLowerCase())) out.push(p);
     }
   };

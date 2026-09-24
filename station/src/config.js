@@ -36,7 +36,7 @@ const config = {
     maxTokens: num(process.env.DJ_MAX_TOKENS, 400),
   },
   kb: { topK: num(process.env.KB_TOP_K, 3), chunkChars: 600 },
-  paths: { music: process.env.MUSIC_DIR || '/music', data: process.env.DATA_DIR || '/data' },
+  paths: { music: '/music', data: process.env.DATA_DIR || '/data' },
 };
 
 if (!config.icecast.password) {
