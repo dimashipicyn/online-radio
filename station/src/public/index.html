@@ -39,6 +39,11 @@
   .toggle.on { background:var(--acc); }
   .toggle::after { content:''; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#fff; transition:.2s; }
   .toggle.on::after { left:23px; }
+  .player { display:flex; align-items:center; gap:12px; margin:8px 0 22px; }
+  .play-btn { width:46px; height:46px; min-width:46px; border-radius:50%; font-size:17px; display:flex; align-items:center; justify-content:center; padding:0; }
+  #spectrum { flex:1; height:46px; min-width:0; background:#0f1216; border:1px solid var(--line); border-radius:8px; }
+  .vol { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+  input[type=range] { accent-color:var(--acc); cursor:pointer; }
   #login { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:10; }
   #login .box { width:min(360px,90vw); }
   #login h1 { margin-bottom:18px; }
@@ -72,7 +77,15 @@
       <div class="toggle on" id="djToggle" title="вкл/выкл вставки ведущего"></div>
     </div>
   </header>
-  <audio controls preload="none" src="/radio.mp3"></audio>
+  <div class="player">
+    <button class="play-btn" id="playBtn" title="плей/пауза">▶</button>
+    <canvas id="spectrum"></canvas>
+    <div class="vol">
+      <span class="muted" title="громкость">🔊</span>
+      <input type="range" id="vol" min="0" max="1" step="0.01" value="1" style="width:90px">
+    </div>
+  </div>
+  <audio id="stream" preload="none" src="/radio.mp3"></audio>
 
   <div class="grid">
     <div class="card">
@@ -188,6 +201,62 @@ async function refreshLists() {
 
 window.delTopic = async (id) => { await api('/api/topics/' + id, { method:'DELETE' }); refreshLists(); };
 window.delKb = async (title) => { await api('/api/kb/' + title, { method:'DELETE' }); refreshLists(); };
+
+// ---------- плеер: плей / спектр / громкость ----------
+const stream = $('stream');
+const playBtn = $('playBtn');
+const spec = $('spectrum');
+let actx = null, analyser = null, rafId = null;
+
+$('vol').value = localStorage.getItem('radioVol') ?? 1;
+stream.volume = Number($('vol').value) || 1;
+$('vol').oninput = (e) => {
+  stream.volume = Number(e.target.value);
+  localStorage.setItem('radioVol', e.target.value);
+};
+
+playBtn.onclick = () => {
+  if (!stream.paused) {
+    stream.pause();
+    playBtn.textContent = '▶';
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    spec.getContext('2d').clearRect(0, 0, spec.width, spec.height);
+    return;
+  }
+  if (!actx) {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = actx.createMediaElementSource(stream);
+    analyser = actx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.8;
+    src.connect(analyser);
+    analyser.connect(actx.destination);
+  }
+  actx.resume();
+  stream.play().catch(() => { playBtn.textContent = '▶'; });
+  playBtn.textContent = '⏸';
+  drawSpectrum();
+};
+
+function drawSpectrum() {
+  rafId = requestAnimationFrame(drawSpectrum);
+  spec.width = Math.max(1, spec.clientWidth * (window.devicePixelRatio || 1));
+  spec.height = Math.max(1, spec.clientHeight * (window.devicePixelRatio || 1));
+  const g = spec.getContext('2d');
+  g.clearRect(0, 0, spec.width, spec.height);
+  if (!analyser) return;
+  const bins = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(bins);
+  const N = 56;
+  const bw = spec.width / N;
+  for (let i = 0; i < N; i++) {
+    const v = bins[i + 2] / 255;
+    const h = Math.max(2, v * spec.height * 0.92);
+    g.fillStyle = `rgba(255,92,57,${(0.3 + v * 0.7).toFixed(2)})`;
+    g.fillRect(i * bw + bw * 0.18, spec.height - h, bw * 0.64, h);
+  }
+}
 
 $('topicBtn').onclick = async () => {
   const r = await api('/api/topics', { method:'POST', body: JSON.stringify({ text: $('topicText').value }) });
