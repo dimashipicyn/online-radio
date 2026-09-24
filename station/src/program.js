@@ -29,6 +29,7 @@ class Program {
     this.preparingBreak = false;
     this.breakCounter = 0;
     this.djEnabled = config.dj.enabled;
+    this.musicEnabled = config.music.enabled; // false — тестируем только спичи
     this.nowPlaying = null;           // {title, artist, duration}
     this.startedAt = Date.now();
   }
@@ -41,6 +42,7 @@ class Program {
     return {
       nowPlaying: this.nowPlaying,
       djEnabled: this.djEnabled,
+      musicEnabled: this.musicEnabled,
       insertQueue: this.inserts.length,
       preparing: this.preparingBreak,
       breaksToday: this.breakCounter,
@@ -50,6 +52,7 @@ class Program {
   // ---------------- музыка ----------------
 
   _startMusic() {
+    if (!this.musicEnabled) return; // спич-режим: музыки нет, микшер льёт тишину
     if (this.player) return;
     let track = library.nextTrack({ category: 'music' });
     if (!track) {
@@ -140,8 +143,11 @@ class Program {
     if (!insert) return;
     if (priority) this.inserts.unshift(insert);
     else this.inserts.push(insert);
-    // если музыка стоит и ждём — ткнём
-    if (!this.player && !this.currentInsert) this._startMusic();
+    // если музыка стоит и ждём — ткнём; в спич-режиме вставка идёт сразу в эфир
+    if (!this.player && !this.currentInsert) {
+      if (this.musicEnabled) this._startMusic();
+      else this._playNextInsertOrMusic();
+    }
   }
 
   _playNextInsertOrMusic(finishedTrack) {

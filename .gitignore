@@ -11,3 +11,4 @@ build.log
 ses*.json
 session-*.md
 data/inserts/
+tts-samples/

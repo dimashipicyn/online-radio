@@ -17,6 +17,7 @@ const config = {
     channels: 2,
   },
   web: { port: num(process.env.WEB_PORT, 3000) },
+  music: { enabled: bool(process.env.MUSIC_ENABLED, true) }, // false — спич-режим: эфир без музыки
   adminPassword: process.env.ADMIN_PASSWORD || '',
   ollama: {
     host: process.env.OLLAMA_HOST || 'http://ollama:11434',
@@ -28,7 +29,7 @@ const config = {
     name: process.env.DJ_NAME || 'Валера',
     radioName: process.env.RADIO_NAME || 'Радио Слом',
     speaker: process.env.DJ_SPEAKER || 'eugene',
-    callerSpeaker: process.env.CALLER_SPEAKER || 'xenia',
+    callerSpeaker: process.env.CALLER_SPEAKER || 'kseniya', // xenia/baya/aidar у v5 звенят на ВЧ
     enabled: bool(process.env.DJ_ENABLED, true),
     style: process.env.DJ_STYLE || '',              // своё описание персоны (перекрывает дефолт)
     leadSec: num(process.env.DJ_LEAD_SEC, 30),      // за сколько до конца трека готовить реплику

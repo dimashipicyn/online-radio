@@ -27,6 +27,7 @@ function personaSystem(kind) {
     'ОБЪЁМ: 8–12 предложений — полноценный монолог минутной давности, а не две фразы. Развивай мысль, уходи в смежные темы, возвращайся.',
     'ПРИЁМЫ: риторические вопросы слушателям, привязка ко времени суток, ехидный комментарий к песне, которая только что отыграла или заиграет дальше, анонсы вроде «дальше по эфиру», внутренние мини-истории.',
     'ЗАПРЕТЫ: списки, эмодзи, кавычки-цитаты, ремарки вроде «(смех)», упоминания ИИ/нейросетей/промптов, извинения.',
+    'ДЛЯ ОЗВУЧКИ СИНТЕЗАТОРОМ: числа, даты и время пиши словами («двадцать три процента», «в две тысячи двадцать третьем»), без цифр, латиницы и ссылок. Короткие предложения, запятые и многоточия — по ним синтезатор расставляет паузы.',
     'Не здоровайся и не прощайся без нужды — ты в середине эфира. Отвечай ТОЛЬКО текстом для озвучки, без комментариев.',
   ];
   if (kind === 'call') {
@@ -36,6 +37,22 @@ function personaSystem(kind) {
 }
 
 /** Сценарий диалога «звонящий ↔ Валера» в JSON. 4–6 реплик, ~35–45 секунд эфира. */
+/** Достаёт реплики из ответа LLM: сначала целиком, при битом JSON — спасаем отдельные объекты. */
+function parseDialogue(raw) {
+  const m = raw.match(/\[[\s\S]*\]/);
+  const candidate = m ? m[0] : raw;
+  try {
+    return JSON.parse(candidate);
+  } catch { /* хвост обрезан/сломан — спасаем по одной реплике */ }
+  const items = [];
+  const re = /\{[^{}]*\}/g;
+  let mm;
+  while ((mm = re.exec(candidate)) !== null) {
+    try { items.push(JSON.parse(mm[0])); } catch { /* битую реплику пропускаем */ }
+  }
+  return items;
+}
+
 async function generateDialogue(ctx) {
   const prompt = `${ctx}
 
@@ -44,24 +61,27 @@ async function generateDialogue(ctx) {
 Правила:
 - 4-6 реплик, чередуй caller и dj, первый — caller
 - Реплики живые, разговорные, Валера дерзкий и со стихийным матом, звонящий простым языком
+- Числа, даты и время — словами, без цифр и латиницы
 - Валера должен развить тему звонка, добавить своё мнение и съязвить
 - Суммарно диалог на 35-45 секунд речи`;
-  const raw = await ollama.chat(
-    [
-      { role: 'system', content: personaSystem('call') },
-      { role: 'user', content: prompt },
-    ],
-    { temperature: 1.0, maxTokens: 600 }
-  );
-  const m = raw.match(/\[[\s\S]*\]/);
-  if (!m) throw new Error('в ответе нет JSON-массива');
-  const arr = JSON.parse(m[0]);
-  const lines = arr
-    .filter((l) => l && typeof l.text === 'string' && l.text.trim())
-    .map((l) => ({ speaker: l.s === 'dj' ? 'dj' : 'caller', text: l.text.trim().slice(0, 400) }))
-    .filter((l) => l.text);
-  if (lines.length < 2) throw new Error('слишком короткий диалог');
-  return lines;
+  let lastErr = new Error('нет ответа от LLM');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const raw = await ollama.chat(
+      [
+        { role: 'system', content: personaSystem('call') },
+        { role: 'user', content: prompt },
+      ],
+      { temperature: 1.0, maxTokens: 600 }
+    );
+    const arr = parseDialogue(raw);
+    const lines = arr
+      .filter((l) => l && typeof l.text === 'string' && l.text.trim())
+      .map((l) => ({ speaker: l.s === 'dj' ? 'dj' : 'caller', text: l.text.trim().slice(0, 400) }))
+      .filter((l) => l.text);
+    if (lines.length >= 2) return lines;
+    lastErr = new Error(`пригодных реплик ${lines.length}`);
+  }
+  throw lastErr;
 }
 
 async function buildContext({ topic, nextTrack, prevTrack } = {}) {
