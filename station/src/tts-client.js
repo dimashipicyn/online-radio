@@ -60,4 +60,56 @@ async function prepareInsert({ text, speaker, kind }) {
   }
 }
 
-module.exports = { prepareInsert };
+/** WAV-файл -> сырой PCM-буфер s16le 44.1k stereo. */
+function wavFileToRawBuffer(wavPath) {
+  return new Promise((resolve, reject) => {
+    const ff = spawn('ffmpeg', [
+      '-hide_banner', '-loglevel', 'error',
+      '-i', wavPath,
+      '-f', 's16le', '-ar', '44100', '-ac', '2',
+      '-y', 'pipe:1',
+    ]);
+    const chunks = [];
+    ff.stdout.on('data', (d) => chunks.push(d));
+    ff.on('error', reject);
+    ff.on('close', (code) =>
+      code === 0 ? resolve(Buffer.concat(chunks)) : reject(new Error(`ffmpeg wav->raw exit ${code}`))
+    );
+  });
+}
+
+const LINE_GAP_BYTES = Math.round(176400 * 0.45); // пауза 450мс между репликами
+
+/**
+ * Диалоговая вставка: каждая реплика озвучивается своим голосом,
+ * между репликами пауза, всё склеивается в один raw-файл.
+ * lines: [{speaker: 'dj'|'caller', text}]
+ */
+async function prepareDialogueInsert(lines) {
+  const id = crypto.randomBytes(5).toString('hex');
+  const rawPath = path.join(INSERT_DIR, `${id}.raw`);
+  const parts = [];
+  const gap = Buffer.alloc(LINE_GAP_BYTES);
+  try {
+    for (let i = 0; i < lines.length; i++) {
+      const speaker = lines[i].speaker === 'dj' ? config.dj.speaker : config.dj.callerSpeaker;
+      const wav = await synthesize(lines[i].text, speaker);
+      const tmp = path.join(INSERT_DIR, `${id}_${i}.wav`);
+      fs.writeFileSync(tmp, wav);
+      const pcm = await wavFileToRawBuffer(tmp);
+      fs.unlinkSync(tmp);
+      parts.push(pcm, gap);
+    }
+    const raw = Buffer.concat(parts);
+    fs.writeFileSync(rawPath, raw);
+    const text = lines.map((l) => `${l.speaker === 'dj' ? 'DJ' : 'Звонящий'}: ${l.text}`).join(' | ');
+    log.info(`tts: диалоговая вставка готова (${(raw.length / 176400).toFixed(1)}s, реплик ${lines.length})`);
+    return { id, kind: 'call', text, speaker: 'dialogue', path: rawPath, bytes: raw.length };
+  } catch (e) {
+    log.error(`tts: диалог не удался: ${e.message}`);
+    try { fs.existsSync(rawPath) && fs.unlinkSync(rawPath); } catch { /* ок */ }
+    throw e;
+  }
+}
+
+module.exports = { prepareInsert, prepareDialogueInsert };

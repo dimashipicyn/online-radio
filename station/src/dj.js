@@ -3,7 +3,7 @@
 const config = require('./config');
 const ollama = require('./ollama');
 const kb = require('./kb');
-const { prepareInsert } = require('./tts-client');
+const { prepareInsert, prepareDialogueInsert } = require('./tts-client');
 const { db } = require('./db');
 const log = require('./logger');
 
@@ -24,15 +24,44 @@ function personaSystem(kind) {
   ].join(' ');
   const base = [
     style,
-    'ОБЪЁМ: 4–8 предложений — небольшой монолог, а не скороговорка. Можно увести мысль в сторону.',
-    'ПРИЁМЫ: риторические вопросы слушателям, привязка ко времени суток, ехидный комментарий к песне, которая только что отыграла или заиграет дальше, анонсы вроде «дальше по эфиру».',
+    'ОБЪЁМ: 8–12 предложений — полноценный монолог минутной давности, а не две фразы. Развивай мысль, уходи в смежные темы, возвращайся.',
+    'ПРИЁМЫ: риторические вопросы слушателям, привязка ко времени суток, ехидный комментарий к песне, которая только что отыграла или заиграет дальше, анонсы вроде «дальше по эфиру», внутренние мини-истории.',
     'ЗАПРЕТЫ: списки, эмодзи, кавычки-цитаты, ремарки вроде «(смех)», упоминания ИИ/нейросетей/промптов, извинения.',
     'Не здоровайся и не прощайся без нужды — ты в середине эфира. Отвечай ТОЛЬКО текстом для озвучки, без комментариев.',
   ];
   if (kind === 'call') {
-    base.push('Сейчас ты оформляешь звонок слушателя в студию: передай суть звонка живой речью от лица звонящего, 2–3 фразы, без приветствий и вежливых оборотов.');
+    base.push('Сейчас ты оформляешь ЗВОНОК СЛУШАТЕЛЯ В СТУДИЮ как ДИАЛОГ.');
   }
   return base.join(' ');
+}
+
+/** Сценарий диалога «звонящий ↔ Валера» в JSON. 4–6 реплик, ~35–45 секунд эфира. */
+async function generateDialogue(ctx) {
+  const prompt = `${ctx}
+
+Оформи это как ДИАЛОГ звонка в студию. Верни ТОЛЬКО JSON-массив, без markdown и пояснений:
+[{"s":"caller","text":"<реплика звонящего, 1-2 фразы>"},{"s":"dj","text":"<ответ Валеры, 1-3 фразы>"}]
+Правила:
+- 4-6 реплик, чередуй caller и dj, первый — caller
+- Реплики живые, разговорные, Валера дерзкий и со стихийным матом, звонящий простым языком
+- Валера должен развить тему звонка, добавить своё мнение и съязвить
+- Суммарно диалог на 35-45 секунд речи`;
+  const raw = await ollama.chat(
+    [
+      { role: 'system', content: personaSystem('call') },
+      { role: 'user', content: prompt },
+    ],
+    { temperature: 1.0, maxTokens: 600 }
+  );
+  const m = raw.match(/\[[\s\S]*\]/);
+  if (!m) throw new Error('в ответе нет JSON-массива');
+  const arr = JSON.parse(m[0]);
+  const lines = arr
+    .filter((l) => l && typeof l.text === 'string' && l.text.trim())
+    .map((l) => ({ speaker: l.s === 'dj' ? 'dj' : 'caller', text: l.text.trim().slice(0, 400) }))
+    .filter((l) => l.text);
+  if (lines.length < 2) throw new Error('слишком короткий диалог');
+  return lines;
 }
 
 async function buildContext({ topic, nextTrack, prevTrack } = {}) {
@@ -57,9 +86,9 @@ async function generateText(kind, ctx) {
     { role: 'user', content: ctx },
   ];
   if (kind === 'greeting') {
-    messages.push({ role: 'user', content: `Поприветствуй слушателей «${DJ.radioName}». В эфире ты первый раз за сегодня. Монолог на 5–8 предложений: настроение, время суток, чего ждать от эфира.` });
+    messages.push({ role: 'user', content: `Поприветствуй слушателей «${DJ.radioName}». В эфире ты первый раз за сегодня. Монолог на 8–12 предложений: настроение, время суток, чего ждать от эфира, пара историй.` });
   } else if (kind === 'chatter') {
-    messages.push({ role: 'user', content: 'Перекинь слово в эфир: небольшой монолог на 4–8 предложений. Зацепи время суток, только что отыгравший трек или дальше идущий, кинь слушателям ехидный вопрос, разберись вслух в чём-нибудь несущественном.' });
+    messages.push({ role: 'user', content: 'Монолог на 8–12 предложений. Зацепи время суток, только что отыгравший трек или дальше идущий, кинь слушателям ехидный вопрос, разберись вслух в чём-нибудь несущественном, расскажи мини-историю.' });
   }
   return ollama.chat(messages, { temperature: 1.0, maxTokens: DJ.maxTokens });
 }
@@ -74,27 +103,25 @@ async function prepareBreak({ kind, topic, nextTrack, prevTrack, callerSpeaker }
     return null;
   }
   try {
-    let text;
+    let text = '';
+    let insert = null;
     if (kind === 'call') {
-      // LLM оформляет текст звонка как живую реплику звонящего
-      text = await ollama.chat(
-        [
-          { role: 'system', content: personaSystem('call') },
-          {
-            role: 'user',
-            content: `Звонок в студию: ${topic}. Передай суть одной-двумя фразами живой устной речью от лица звонящего. Без «алло», без приветствий.`,
-          },
-        ],
-        { temperature: 1.0, maxTokens: 120 }
-      );
+      // диалог «звонящий ↔ Валера»: LLM-сценарий -> озвучка каждой реплики своим голосом
+      const lines = await generateDialogue(topic);
+      insert = await prepareDialogueInsert(lines);
+      text = lines.map((l) => (l.speaker === 'dj' ? '🔧 ' : '📞 ') + l.text).join('\n');
     } else {
       const ctx = await buildContext({ topic, nextTrack, prevTrack });
       text = await generateText(kind, ctx);
     }
-    // страховка от разросшихся монологов
-    if (text.length > 600) text = text.slice(0, 600).replace(/\s+\S*$/, '') + '...';
-    const speaker = kind === 'call' ? callerSpeaker || DJ.callerSpeaker : DJ.speaker;
-    return prepareInsert({ text, speaker, kind });
+    // страховка от разросшихся монологов (диалоги уходят своей веткой)
+    if (!insert && text.length > 1200) text = text.slice(0, 1200).replace(/\s+\S*$/, '') + '...';
+    if (!insert) {
+      const speaker = kind === 'call' ? callerSpeaker || DJ.callerSpeaker : DJ.speaker;
+      insert = await prepareInsert({ text, speaker, kind });
+    }
+    if (insert) insert.text = text || insert.text;
+    return insert;
   } catch (e) {
     log.error(`dj: генерация ${kind} упала: ${e.message}`);
     return null;
