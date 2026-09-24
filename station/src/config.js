@@ -51,6 +51,10 @@ const config = {
     gapMinMs: 250,     // паузы в диалогах
     gapMaxMs: 500,
     musicVolume: 1.0,  // громкость музыки относительно голоса
+    bassWarmth: 1.5,   // тёплота голоса (дБ на 110 Гц) — убирает сухость
+    presence: 1,       // чёткость (дБ на 2.7 кГц) — разборчивость без жёсти
+    room: 0.1,         // лёгкая комната (эхо) — убирает стерильность
+    rnn: false,        // нейро-шумодав arnndn (эксперимент)
   },
   kb: { topK: num(process.env.KB_TOP_K, 3), chunkChars: 600 },
   paths: { music: '/music', data: process.env.DATA_DIR || '/data' },

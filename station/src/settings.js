@@ -35,6 +35,10 @@ const SCHEMA = [
   { key: 'audio.deesser',        type: 'number', group: 'Звук',     label: 'Деэссер (0 — выкл)', min: 0, max: 1, step: 0.05 },
   { key: 'audio.gapMinMs',       type: 'number', group: 'Звук',     label: 'Пауза в диалогах, мин (мс)', min: 100, max: 1500, step: 25 },
   { key: 'audio.gapMaxMs',       type: 'number', group: 'Звук',     label: 'Пауза в диалогах, макс (мс)', min: 100, max: 1500, step: 25 },
+  { key: 'audio.bassWarmth',     type: 'number', group: 'Звук',     label: 'Теплота голоса, дБ (басс)', min: 0, max: 5, step: 0.5 },
+  { key: 'audio.presence',       type: 'number', group: 'Звук',     label: 'Чёткость, дБ (2.7 кГц)', min: 0, max: 4, step: 0.5 },
+  { key: 'audio.room',           type: 'number', group: 'Звук',     label: 'Комната, лёгкое эхо', min: 0, max: 0.5, step: 0.05 },
+  { key: 'audio.rnn',            type: 'bool',   group: 'Звук',     label: 'Нейро-шумодав (эксперимент)' },
 
   { key: 'ollama.model',     type: 'text',     group: 'Система',    label: 'Модель Ollama (из скачанных)', required: true },
 ];

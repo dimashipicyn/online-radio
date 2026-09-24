@@ -39,9 +39,16 @@ function voiceAF() {
   if (hp > 0) af.push(`highpass=f=${hp}`);
   const lp = Number(settings.get('audio.lowpass')) || 0;
   if (lp > 0 && lp < 20000) af.push(`lowpass=f=${lp}`);
+  const bass = Number(settings.get('audio.bassWarmth')) || 0;
+  if (bass > 0) af.push(`bass=g=${bass}:f=110:w=0.6`);
+  const pres = Number(settings.get('audio.presence')) || 0;
+  if (pres > 0) af.push(`equalizer=f=2700:t=q:w=1.1:g=${pres}`);
   const de = Number(settings.get('audio.deesser')) || 0;
   if (de > 0) af.push(`deesser=i=${de}`);
+  if (settings.get('audio.rnn')) af.push('arnndn=m=/app/bd.rnnn');
   af.push('areverse,silenceremove=start_periods=1:start_threshold=-45dB,areverse');
+  const room = Number(settings.get('audio.room')) || 0;
+  if (room > 0) af.push(`aecho=1:0.9:38|64:${room}|${(room * 0.6).toFixed(2)}`);
   return af.join(',');
 }
 
