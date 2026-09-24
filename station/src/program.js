@@ -225,6 +225,11 @@ class Program {
     settings.set({ 'dj.enabled': !!v }); // пишем через общие настройки — GUI подхватит
     return config.dj.enabled;
   }
+
+  /** Включили музыку, а эфир молчит — стартуем сразу. */
+  kickMusic() {
+    if (config.music.enabled && !this.player && !this.currentInsert) this._startMusic();
+  }
 }
 
 module.exports = { Program, CHUNK_BYTES, BYTES_PER_SEC };

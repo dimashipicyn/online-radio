@@ -6,7 +6,6 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<meta http-equiv="refresh" content="15"/>
 <title>Статус эфира</title>
 <style>
   :root { --bg:#0d0f12; --card:#161a20; --line:#242a33; --txt:#e6e9ee; --dim:#8a94a3; --acc:#ff5c39; }
@@ -49,10 +48,10 @@
       <xsl:otherwise><span class="live off">ОФФЛАЙН</span></xsl:otherwise>
     </xsl:choose>
   </header>
-  <div class="sub">Слушателей сейчас: <b><xsl:value-of select="sum(source/listeners)"/></b> · страница обновляется каждые 15 с</div>
+  <div class="sub">Слушателей сейчас: <b id="totalListeners"><xsl:value-of select="sum(source/listeners)"/></b> · данные обновляются на лету</div>
 
   <xsl:for-each select="source">
-    <div class="card">
+    <div class="card" data-mount="{@mount}">
       <div class="mount"><span class="dot"></span><xsl:value-of select="@mount"/></div>
       <div class="np">
         <xsl:choose>
@@ -61,9 +60,9 @@
         </xsl:choose>
       </div>
       <div class="stats">
-        <div><span>Слушателей</span><b><xsl:value-of select="listeners"/></b></div>
-        <div><span>Пик</span><b><xsl:value-of select="listener_peak"/></b></div>
-        <div><span>Битрейт</span><b>
+        <div><span>Слушателей</span><b class="lst"><xsl:value-of select="listeners"/></b></div>
+        <div><span>Пик</span><b class="peak"><xsl:value-of select="listener_peak"/></b></div>
+        <div><span>Битрейт</span><b class="br">
           <xsl:choose>
             <xsl:when test="bitrate != ''"><xsl:value-of select="bitrate"/> kbps</xsl:when>
             <xsl:otherwise>—</xsl:otherwise>
@@ -105,10 +104,43 @@
       document.querySelectorAll('a.listen').forEach(function (x) { x.textContent = '▶ Слушать'; });
       pl.src = src;
       pl.setAttribute('data-on', '1');
-      pl.play();
+      pl.play().catch(function () { a.textContent = '⚠ Не заиграло — попробуйте ещё раз'; });
       a.textContent = '⏸ Играет…';
     });
   });
+  pl.addEventListener('error', function () {
+    document.querySelectorAll('a.listen').forEach(function (x) { x.textContent = '⚠ Поток недоступен'; });
+  });
+
+  // живое обновление данных без перезагрузки страницы (перезагрузка убивала звук)
+  function pollStatus() {
+    fetch('/status-json.xsl').then(function (r) { return r.json(); }).then(function (j) {
+      var st = j.icestats || {};
+      var srcs = st.source ? [].concat(st.source) : [];
+      var badge = document.getElementById('badge');
+      var total = 0;
+      srcs.forEach(function (x) { total += Number(x.listeners) || 0; });
+      var tl = document.getElementById('totalListeners');
+      if (tl) tl.textContent = total;
+      if (badge) {
+        if (srcs.length === 0) { badge.textContent = 'ОФФЛАЙН'; badge.classList.add('off'); }
+        else { badge.textContent = 'В ЭФИРЕ'; badge.classList.remove('off'); }
+      }
+      document.querySelectorAll('.card[data-mount]').forEach(function (card) {
+        var m = card.getAttribute('data-mount');
+        var cur = null;
+        srcs.forEach(function (x) { if ((x['@mount'] || x.mount) === m) cur = x; });
+        if (!cur) return;
+        var q = function (cls) { return card.querySelector(cls); };
+        if (cur.title) q('.np').textContent = cur.title;
+        q('.lst').textContent = Number(cur.listeners) || 0;
+        q('.peak').textContent = Number(cur.listener_peak) || 0;
+        if (cur.bitrate) q('.br').textContent = cur.bitrate + ' kbps';
+      });
+    }).catch(function () {});
+  }
+  setInterval(pollStatus, 10000);
+
   document.getElementById('uiLink').href =
     window.location.protocol + '//' + window.location.hostname + ':3000';
 </script>

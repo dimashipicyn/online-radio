@@ -114,7 +114,9 @@ function makeRoutes({ getStatus, program, kb, library, db }) {
             return send(res, 400, { error: `такой модели нет в ollama. Доступны: ${names.join(', ')}` });
           }
         }
-        send(res, 200, { ok: true, applied: settings.set(body) });
+        const applied = settings.set(body);
+        if (applied['music.enabled'] === true) program.kickMusic(); // включили музыку — эфир сразу зазвучит
+        send(res, 200, { ok: true, applied });
       } catch (e) { send(res, 400, { error: e.message }); }
     },
     'POST /api/settings/reset': (_req, res) => {
