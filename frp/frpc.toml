@@ -10,3 +10,10 @@ type = "tcp"
 localIP = "station"
 localPort = 3000
 remotePort = 3000
+
+[[proxies]]
+name = "radio-tts"
+type = "tcp"
+localIP = "tts"
+localPort = 8001
+remotePort = 8001

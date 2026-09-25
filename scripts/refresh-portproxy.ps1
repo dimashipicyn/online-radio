@@ -7,6 +7,7 @@
 # После выполнения радио доступно из локалки:
 #   веб-UI:  http://<IP-этого-ПК>:3000   (пароль — ADMIN_PASSWORD из .env)
 #   стрим:   http://<IP-этого-ПК>:8000/radio.mp3
+#   tts:     http://<IP-этого-ПК>:8001/translate_tts
 
 $ErrorActionPreference = 'Continue'
 
@@ -28,6 +29,7 @@ Write-Host "IP WSL: $wslIp" -ForegroundColor Cyan
 $services = [ordered]@{
     3000 = 'Radio Web UI 3000'
     8000 = 'Radio Stream 8000'
+    8001 = 'Radio TTS 8001'
 }
 
 foreach ($port in $services.Keys) {

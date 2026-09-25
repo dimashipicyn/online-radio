@@ -4,6 +4,8 @@
 API:
   GET  /health                      -> готовность
   POST /tts {text, speaker, rate}   -> audio/wav (48kHz mono s16)
+  GET  /translate_tts?q=&tl=&client=tw-ob
+       совместим с Google Translate TTS: локальный Silero, ответ audio/mpeg
 Голоса v5_ru: aidar, baya, kseniya, eugene, xenia.
 
 Качество речи:
@@ -16,7 +18,7 @@ import io
 import logging
 import os
 import re
-import struct
+import subprocess
 import threading
 import wave
 import xml.sax.saxutils as saxutils
@@ -24,7 +26,7 @@ from pathlib import Path
 
 import requests
 import torch
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response
 from num2words import num2words
 import numpy as np
@@ -255,6 +257,26 @@ class TtsRequest(BaseModel):
     rate: float = 1.0  # темп речи (SSML prosody rate): <1 медленнее, >1 быстрее
 
 
+def _synth(text: str, speaker: str, rate: float) -> torch.Tensor:
+    text = _numbers_to_words(text.strip())
+    text = _latin_to_cyr(text)
+    if not text:
+        raise HTTPException(400, "пустой текст")
+    if len(text) > MAX_TEXT:
+        text = text[:MAX_TEXT]
+    speaker = speaker if speaker in VOICES else os.environ.get("GTTS_SPEAKER", "eugene")
+    if speaker not in VOICES:
+        speaker = "eugene"
+    phrases = _split_phrases(text) or [text]
+    gap = torch.zeros(int(SAMPLE_RATE * PHRASE_GAP_SEC))
+    parts: list[torch.Tensor] = []
+    for i, phrase in enumerate(phrases):
+        if i:
+            parts.append(gap)
+        parts.append(_synth_phrase(phrase, speaker, rate))
+    return torch.cat(parts)
+
+
 def _to_wav(samples: torch.Tensor) -> bytes:
     pcm = (samples * 32767).clamp(-32768, 32767).to(torch.int16).numpy().tobytes()
     buf = io.BytesIO()
@@ -277,28 +299,66 @@ def health():
     }
 
 
+def _to_mp3(wav: bytes) -> bytes:
+    """Google отдаёт mp3 — внешний клиент ждёт тот же контейнер."""
+    proc = subprocess.run(
+        [
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-i", "pipe:0",
+            "-ac", "1", "-ar", "24000",
+            "-codec:a", "libmp3lame", "-q:a", "4",
+            "-f", "mp3", "pipe:1",
+        ],
+        input=wav,
+        capture_output=True,
+        check=False,
+    )
+    if proc.returncode != 0 or not proc.stdout:
+        err = proc.stderr.decode("utf-8", "replace")[-200:]
+        raise HTTPException(500, f"mp3: {err}")
+    return proc.stdout
+
+
 @app.post("/tts")
 def tts(req: TtsRequest):
     if not _state["ready"]:
         raise HTTPException(503, "модель ещё не готова")
-    text = _numbers_to_words(req.text.strip())
-    text = _latin_to_cyr(text)
-    if not text:
-        raise HTTPException(400, "пустой текст")
-    if len(text) > MAX_TEXT:
-        text = text[:MAX_TEXT]
-    speaker = req.speaker if req.speaker in VOICES else "eugene"
-    phrases = _split_phrases(text) or [text]
-    gap = torch.zeros(int(SAMPLE_RATE * PHRASE_GAP_SEC))
     try:
-        parts: list[torch.Tensor] = []
-        for i, phrase in enumerate(phrases):
-            if i:
-                parts.append(gap)
-            parts.append(_synth_phrase(phrase, speaker, req.rate))
-        audio = torch.cat(parts)
+        audio = _synth(req.text, req.speaker, req.rate)
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
         log.error("tts failed: %s", e)
         raise HTTPException(500, "ошибка синтеза") from e
+    return Response(content=_to_wav(audio), media_type="audio/wav")
+
+
+@app.get("/translate_tts")
+def translate_tts(
+    q: str = Query("", description="текст, как у Google Translate TTS"),
+    text: str = Query(""),
+    tl: str = Query("ru"),
+    speaker: str = Query(""),
+    rate: float = Query(1.0),
+    format: str = Query("mp3"),
+):
+    """Дроп-ин вместо translate.google.com/translate_tts. Модель локальная, в Google ничего не уходит."""
+    if not _state["ready"]:
+        raise HTTPException(503, "модель ещё не готова")
+    raw = (q or text).strip()
+    if not raw:
+        raise HTTPException(400, "пустой текст")
+    if tl and not tl.lower().startswith("ru"):
+        log.warning("tl=%s, модель только ru — озвучиваю как русский", tl)
+    voice = speaker or os.environ.get("GTTS_SPEAKER", "eugene")
+    try:
+        audio = _synth(raw, voice, rate)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        log.error("translate_tts failed: %s", e)
+        raise HTTPException(500, "ошибка синтеза") from e
     wav = _to_wav(audio)
-    return Response(content=wav, media_type="audio/wav")
+    if format.lower() == "wav":
+        return Response(content=wav, media_type="audio/wav")
+    return Response(content=_to_mp3(wav), media_type="audio/mpeg")

@@ -25,10 +25,14 @@ services:
       start_period: 10s
     networks: [radio]
 
-  # ---------- TTS: Silero v4 (русские голоса) ----------
+  # ---------- TTS: Silero v5. GET /translate_tts — дроп-ин Google TTS ----------
   tts:
     build: ./tts
     restart: unless-stopped
+    environment:
+      GTTS_SPEAKER: ${GTTS_SPEAKER:-eugene}
+    ports:
+      - "${TTS_PUBLIC_PORT:-8001}:8001"
     volumes:
       - tts_cache:/cache
     healthcheck:

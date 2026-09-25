@@ -55,6 +55,17 @@ sudo apt update && sudo apt install -y nvidia-container-toolkit
 sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker
 ```
 
+## Дроп-ин вместо Google Translate TTS
+
+Сервис `tts` принимает тот же запрос, что `translate.google.com`, и озвучивает его локальным Silero. В Google ничего не уходит.
+
+```text
+GET http://<хост>:8001/translate_tts?ie=UTF-8&tl=ru-RU&client=tw-ob&q=привет
+→ audio/mpeg
+```
+
+В чужом сервисе достаточно сменить хост с `translate.google.com` на этот. Голос — `GTTS_SPEAKER` (по умолчанию `eugene`). `format=wav` отдаёт wav вместо mp3.
+
 ## Голоса Silero (в .env)
 
 `DJ_SPEAKER` — голос ведущего, `CALLER_SPEAKER` — голос звонящих.
