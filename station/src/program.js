@@ -50,12 +50,19 @@ class Program {
   }
 
   /** Прогрев Silero: холодный первый синтез занимает до минуты — вставка
-   * опоздает к оверлею. Греем сразу, результат в эфир не пойдёт. */
-  _prewarmTts() {
+   * опоздает к оверлею. TTS может подняться позже станции — ретраи. */
+  _prewarmTts(attempt = 0) {
     require('./tts-client')
       .prepareInsert({ text: 'Эфир пошёл.', speaker: config.dj.speaker, kind: 'prewarm' })
-      .then((ins) => { if (ins) { try { fs.unlinkSync(ins.path); } catch { /* ок */ } } })
-      .catch(() => {});
+      .then((ins) => {
+        if (ins) {
+          try { fs.unlinkSync(ins.path); } catch { /* ок */ }
+          log.info('program: tts прогрет');
+        } else if (attempt < 4) {
+          setTimeout(() => this._prewarmTts(attempt + 1), 15000);
+        }
+      })
+      .catch(() => { if (attempt < 4) setTimeout(() => this._prewarmTts(attempt + 1), 15000); });
   }
 
   status() {
