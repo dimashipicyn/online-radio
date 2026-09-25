@@ -23,6 +23,8 @@ const DUCK_RAMP_SEC = 1.5;      // за сколько секунд музыка
 const MUSIC_DUCK_LEVEL = 0.18;  // уровень приглушённой музыки под голосом
 const INSERT_START_GAIN = 0.40; // с какой доли громкости входит голос
 const RELEASE_RAMP_SEC = 1.5;   // возврат громкости музыки после вставки
+const SPEECH_BED_LEAD_SEC = 6;  // за сколько до конца речи запускаем следующий трек
+const SPEECH_FADE_SEC = 4;      // нарастание музыки под хвостом спича
 
 /**
  * Программный директор эфира. Микшер дёргает program.readChunk() каждый тик.
@@ -37,6 +39,7 @@ class Program {
     this.currentInsert = null;        // {stream, fifo, served, ...}
     this.overlay = null;              // {insert, buf, pos, ...} — вставка поверх финала трека
     this.duckRelease = null;          // плавный возврат громкости музыки после оверлея
+    this.bedTrack = null;             // трек, уже играющий под хвостом спича
     this.pendingAfterOverlay = null;  // трек, закончившийся во время оверлея
     this.preparingBreak = false;
     this.breakCounter = 0;
@@ -78,7 +81,7 @@ class Program {
 
   // ---------------- музыка ----------------
 
-  _startMusic() {
+  _startMusic({ underSpeech = false } = {}) {
     if (!config.music.enabled) return; // спич-режим: музыки нет, микшер льёт тишину
     if (this.player) return;
     let track = library.nextTrack({ category: 'music' });
@@ -89,7 +92,8 @@ class Program {
     }
     const p = new TrackPlayer(track, { sampleRate, channels, bytesPerSec: BYTES_PER_SEC, leadSec: config.dj.leadSec });
     this.player = p;
-    this.nowPlaying = { title: track.title, artist: track.artist, duration: track.duration || null };
+    if (underSpeech) this.bedTrack = track;
+    else this.nowPlaying = { title: track.title, artist: track.artist, duration: track.duration || null };
 
     p.onReady = () => {
       // пребуферизовались — микшер сам подхватит из readChunk
@@ -116,6 +120,8 @@ class Program {
 
   _onTrackFinished(track) {
     this.player = null;
+    this.bedTrack = null;
+    if (this.currentInsert) return; // трек кончился под речью — вставку не рвём
     this.breakCounter++;
     // вставка поверх финала ещё звучит — музыку запустим, когда она договорит
     if (this.overlay) {
@@ -205,8 +211,44 @@ class Program {
     this._insertDone = () => {
       if (insert.temp) { try { fs.unlinkSync(insert.path); } catch { /* ок */ } }
       this.currentInsert = null;
+      if (this.bedTrack && this.player && !this.inserts.length) {
+        const t = this.bedTrack;
+        this.bedTrack = null;
+        this.nowPlaying = { title: t.title, artist: t.artist, duration: t.duration || null };
+        return; // трек уже звучит, не стартуем второй
+      }
       this._playNextInsertOrMusic(finishedTrack); // цепочкой до конца очереди
     };
+  }
+
+  /** За LEAD секунд до конца речи поднимаем следующий трек, чтобы хвост ушёл в музыку. */
+  _maybeBedMusic() {
+    const ci = this.currentInsert;
+    if (!ci || ci.kind === 'jingle' || !config.music.enabled) return;
+    if (this.player || this.inserts.length) return;
+    const remain = ci.bytes - (ci.state.served || 0);
+    if (remain > SPEECH_BED_LEAD_SEC * BYTES_PER_SEC) return;
+    log.info(`program: музыка под хвостом спича (осталось ${(remain / BYTES_PER_SEC).toFixed(1)}с)`);
+    this._startMusic({ underSpeech: true });
+  }
+
+  _mixSpeechTail(speech) {
+    const ci = this.currentInsert;
+    if (!ci || !this.player || ci.kind === 'jingle') return speech;
+    const start = ci.state.served || 0;
+    const fadeBytes = SPEECH_FADE_SEC * BYTES_PER_SEC;
+    const fadeFrom = ci.bytes - fadeBytes;
+    if (start + speech.length <= fadeFrom) return speech;
+    const music = this.player.readExact(speech.length);
+    if (!music) return speech;
+    for (let i = 0; i < speech.length; i += 2) {
+      const t = Math.max(0, Math.min(1, (start + i - fadeFrom) / fadeBytes));
+      let v = Math.round(speech.readInt16LE(i) + music.readInt16LE(i) * t);
+      if (v > 32767) v = 32767;
+      else if (v < -32768) v = -32768;
+      speech.writeInt16LE(v, i);
+    }
+    return speech;
   }
 
   _readInsertChunk() {
@@ -214,13 +256,20 @@ class Program {
     if (!ci) return null;
     const st = ci.state;
     const buf = st.fifo.readExact(CHUNK_BYTES);
-    if (buf) return buf;
+    if (buf) {
+      const mixed = this._mixSpeechTail(buf);
+      st.served = (st.served || 0) + buf.length;
+      return mixed;
+    }
     if (st.ended) {
       if (st.fifo.length > 0) {
         // хвост вставки: отдаём целиком (не выбрасываем!), добив тишиной до тика
         const out = Buffer.alloc(CHUNK_BYTES);
-        st.fifo.readExact(st.fifo.length).copy(out);
-        return out;
+        const tail = st.fifo.readExact(st.fifo.length);
+        tail.copy(out);
+        const mixed = this._mixSpeechTail(out);
+        st.served = (st.served || 0) + tail.length;
+        return mixed;
       }
       const done = this._insertDone;
       this._insertDone = null;
@@ -312,6 +361,7 @@ class Program {
       if (c) return c;
     }
     if (this.currentInsert) {
+      this._maybeBedMusic();
       const c = this._readInsertChunk();
       if (c) return c;
       if (this.currentInsert) return null; // вставка ещё пребуферизовывается

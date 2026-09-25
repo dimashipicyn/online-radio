@@ -15,7 +15,9 @@ const COOKIE = 'sid';
 const AUTH_TOKEN = crypto.createHmac('sha256', String(config.adminPassword || '')).update('admin-ok').digest('hex');
 const LOGIN_WINDOW = 10 * 60 * 1000;
 const LOGIN_MAX_FAILS = 5;
+const CALL_GAP = 45 * 1000;
 const fails = new Map(); // ip -> {count, until}
+const callHits = new Map(); // ip -> last timestamp
 
 function makeRoutes({ getStatus, program, kb, library, db }) {
   const topics = {
@@ -39,6 +41,16 @@ function makeRoutes({ getStatus, program, kb, library, db }) {
       if (rec.count >= LOGIN_MAX_FAILS) rec.until = Date.now() + LOGIN_WINDOW;
       fails.set(ip, rec);
       send(res, 403, { error: 'неверный пароль' });
+    },
+
+    'GET /api/now': (_req, res) => {
+      const st = getStatus();
+      const np = program.nowPlaying;
+      send(res, 200, {
+        radioName: config.dj.radioName,
+        live: Boolean(st.mixer && st.mixer.online),
+        nowPlaying: np ? { title: np.title || '', artist: np.artist || '' } : null,
+      });
     },
 
     'GET /api/state': (req, res) => {
@@ -67,10 +79,15 @@ function makeRoutes({ getStatus, program, kb, library, db }) {
       send(res, 200, { ok: true });
     },
 
-    'POST /api/calls': async (_req, res, body) => {
+    'POST /api/calls': async (req, res, body) => {
+      const ip = req.socket.remoteAddress || '?';
+      const last = callHits.get(ip) || 0;
+      if (Date.now() - last < CALL_GAP) return send(res, 429, { error: 'подождите немного перед следующим звонком' });
       const text = String(body.text || '').trim();
       if (!text) return send(res, 400, { error: 'пусто' });
+      callHits.set(ip, Date.now());
       const ok = await program.makeCall({ name: String(body.name || '').slice(0, 40), text: text.slice(0, 500) });
+      if (!ok) callHits.delete(ip);
       send(res, ok ? 200 : 503, { ok, error: ok ? undefined : 'dj/tts недоступен' });
     },
 
@@ -185,7 +202,9 @@ function createWeb({ getStatus, program, kb, library, db }) {
       }
       if (!handler) return send(res, 404, { error: 'not found' });
 
-      const isPublic = url.pathname === '/api/login';
+      const isPublic = url.pathname === '/api/login'
+        || url.pathname === '/api/now'
+        || (method === 'POST' && url.pathname === '/api/calls');
       if (!isPublic && req.headers.cookie !== `${COOKIE}=${AUTH_TOKEN}`) {
         return send(res, 401, { error: 'неавторизован' });
       }

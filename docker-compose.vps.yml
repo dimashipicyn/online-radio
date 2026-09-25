@@ -1,0 +1,27 @@
+# Только то, что живёт на VPS: icecast (слушатели) + frps (панель и TTS из дома).
+# Запуск: ./scripts/vps-up.sh
+name: online-radio-vps
+
+services:
+  icecast:
+    build: ./icecast
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?set in .env}
+      ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD:-admin}
+      ICECAST_HOSTNAME: ${ICECAST_HOSTNAME:-0.0.0.0}
+      RADIO_NAME: ${RADIO_NAME:-Радио Слом}
+    ports:
+      - "${ICECAST_PUBLIC_PORT:-8000}:8000"
+
+  frps:
+    image: snowdreamtech/frps:0.61.1
+    restart: unless-stopped
+    command: ["-c", "/etc/frp/frps.toml"]
+    volumes:
+      - ./frp/frps.toml:/etc/frp/frps.toml:ro
+    ports:
+      - "${FRP_SERVER_PORT:-7000}:7000"
+      - "${WEB_PORT:-3000}:3000"
+      - "${TTS_PUBLIC_PORT:-8001}:8001"

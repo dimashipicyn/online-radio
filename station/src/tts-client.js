@@ -138,16 +138,58 @@ async function prepareInsert({ text, speaker, kind, rate }) {
   }
 }
 
-/** WAV-файл -> сырой PCM-буфер s16le 44.1k stereo. */
-async function wavFileToRawBuffer(wavPath) {
+/** Узкая полоса и лёгкий шум линии — звонящий не должен звучать как второй ведущий. */
+function phoneAF() {
+  return [
+    'silenceremove=start_periods=1:start_threshold=-45dB',
+    'highpass=f=300',
+    'lowpass=f=3400',
+    'acompressor=threshold=-18dB:ratio=3:attack=8:release=80',
+    'areverse,silenceremove=start_periods=1:start_threshold=-45dB,areverse',
+  ].join(',');
+}
+
+/** WAV-файл -> сырой PCM-буфер s16le 44.1k stereo. phone — тракт трубки. */
+async function wavFileToRawBuffer(wavPath, { phone = false } = {}) {
   const { stdout } = await ffRun([
     '-hide_banner', '-loglevel', 'error',
     '-i', wavPath,
-    '-af', voiceAF(),
+    '-af', phone ? phoneAF() : voiceAF(),
     '-f', 's16le', '-ar', '44100', '-ac', '2',
     '-y', 'pipe:1',
   ]);
   return stdout;
+}
+
+function writeStereoSample(buf, i, v) {
+  const s = Math.max(-32768, Math.min(32767, v | 0));
+  buf.writeInt16LE(s, i * 4);
+  buf.writeInt16LE(s, i * 4 + 2);
+}
+
+/** Гудок 425 Гц и щелчок снятия трубки, s16le stereo 44.1k. */
+function phonePickup() {
+  const sr = 44100;
+  const tone = (ms, amp) => {
+    const n = Math.round(sr * ms / 1000);
+    const buf = Buffer.alloc(n * 4);
+    for (let i = 0; i < n; i++) {
+      const env = Math.min(1, i / 180, (n - i) / 180);
+      writeStereoSample(buf, i, Math.sin((2 * Math.PI * 425 * i) / sr) * amp * env * 32767);
+    }
+    return buf;
+  };
+  const gap = (ms) => Buffer.alloc(Math.round((BYTES_PER_SEC * ms) / 1000) & ~3);
+  const clickN = Math.round(sr * 0.035);
+  const click = Buffer.alloc(clickN * 4);
+  for (let i = 0; i < clickN; i++) {
+    const env = Math.exp(-i / 180);
+    writeStereoSample(click, i, (Math.random() * 2 - 1) * env * 9000);
+  }
+  return {
+    ring: Buffer.concat([tone(320, 0.22), gap(160), tone(320, 0.22), gap(90)]),
+    open: Buffer.concat([click, gap(160)]),
+  };
 }
 
 /** Пауза между репликами диалога: рандом в заданных пределах — звучит живее. */
@@ -170,7 +212,8 @@ function dialogueGapBytes() {
 async function prepareDialogueInsert(lines) {
   const id = crypto.randomBytes(5).toString('hex');
   const rawPath = path.join(INSERT_DIR, `${id}.raw`);
-  const parts = [];
+  const bed = phonePickup();
+  const parts = [bed.open];
   try {
     for (let i = 0; i < lines.length; i++) {
       const isDj = lines[i].speaker === 'dj';
@@ -179,12 +222,12 @@ async function prepareDialogueInsert(lines) {
       const wav = await synthesize(lines[i].text, speaker, rate);
       const tmp = path.join(INSERT_DIR, `${id}_${i}.wav`);
       fs.writeFileSync(tmp, wav);
-      const pcm = await wavFileToRawBuffer(tmp);
+      const pcm = await wavFileToRawBuffer(tmp, { phone: !isDj });
       fs.unlinkSync(tmp);
       parts.push(pcm);
       if (i < lines.length - 1) parts.push(dialogueGapBytes());
     }
-    const raw = Buffer.concat(parts);
+    const raw = Buffer.concat([bed.ring, Buffer.concat(parts)]);
     fs.writeFileSync(rawPath, raw);
     await normalizeRaw(rawPath);
     const text = lines.map((l) => `${l.speaker === 'dj' ? 'DJ' : 'Звонящий'}: ${l.text}`).join(' | ');

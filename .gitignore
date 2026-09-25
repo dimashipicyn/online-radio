@@ -1,5 +1,6 @@
 .env
 vps.env
+frp/frps.toml
 data/*.db
 data/*.db-*
 music/*
