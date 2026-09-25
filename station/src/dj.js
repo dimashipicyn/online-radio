@@ -117,9 +117,9 @@ async function generateDialogue(ctx, call = {}) {
   const linesCount = 4 + Math.floor(Math.random() * 4); // 4-7
   const prompt = `${ctx}
 
-Смоделируй ЗВОНОК В СТУДИЮ как JSON-массив реплик. Верни ТОЛЬКО массив, без пояснений. Форма (содержание придумай своё — не копируй пример):
-[{"s":"caller","text":"Привет, Валера! Вот у меня история..."},
- {"s":"dj","text":"Ну надо же, конечно! И что дальше было?"}]
+Смоделируй ЗВОНОК В СТУДИЮ как JSON-массив реплик. Верни ТОЛЬКО массив, без пояснений. Форма (углы <> — плейсхолдеры, содержание придумай своё по теме звонка):
+[{"s":"caller","text":"<здоровается и называет тему>"},
+ {"s":"dj","text":"<реакция Валеры>"}]
 Правила:
 - ${linesCount} реплик, строгая очерёдность: ПЕРВАЯ — caller (${who} здоровается и говорит свою тему), дальше Валера, потом снова звонящий...
 - ВСТУПЛЕНИЕ НЕ НУЖНО: Валеру представляет система — сразу начинай с первой реплики звонящего
@@ -136,7 +136,7 @@ async function generateDialogue(ctx, call = {}) {
         { role: 'system', content: personaSystem('call') },
         { role: 'user', content: prompt },
       ],
-      { temperature: 1.0, maxTokens: 600, format: DIALOGUE_FORMAT }
+      { temperature: 1.0, maxTokens: 800, format: DIALOGUE_FORMAT }
     );
     const arr = parseDialogue(raw);
     let lines = arr
