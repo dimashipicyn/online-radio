@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 
-ENV TTS_PORT=8001 MODEL_PATH=/cache/v4_ru.pt
+ENV TTS_PORT=8001 MODEL_PATH=/cache/v5_ru.pt
 VOLUME ["/cache"]
 EXPOSE 8001
 HEALTHCHECK --interval=15s --timeout=5s --start-period=120s --retries=20 \

@@ -6,6 +6,7 @@ RUN sed -i 's|deb.debian.org|mirror.yandex.ru|g; s|security.debian.org|mirror.ya
     && rm -rf /var/lib/apt/lists/*
 
 COPY icecast.xml.tpl /etc/icecast2/icecast.xml.tpl
+COPY web/status.xsl /usr/share/icecast2/web/status.xsl
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh \
     && mkdir -p /var/log/icecast2 \

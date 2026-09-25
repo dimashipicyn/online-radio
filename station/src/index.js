@@ -1,6 +1,7 @@
 'use strict';
 
 const config = require('./config');
+require('./settings').init(); // env-дефолты + переопределения из БД, до старта эфира
 const log = require('./logger');
 const { Mixer } = require('./mixer');
 const { createWeb } = require('./web');

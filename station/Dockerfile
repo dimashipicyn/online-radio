@@ -9,6 +9,7 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install --omit=dev
 COPY src ./src
+COPY bd.rnnn ./bd.rnnn
 
 USER node
 ENV NODE_ENV=production

@@ -39,11 +39,22 @@
   .toggle.on { background:var(--acc); }
   .toggle::after { content:''; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#fff; transition:.2s; }
   .toggle.on::after { left:23px; }
+  .player { display:flex; align-items:center; gap:12px; margin:8px 0 22px; }
+  .play-btn { width:46px; height:46px; min-width:46px; border-radius:50%; font-size:17px; display:flex; align-items:center; justify-content:center; padding:0; }
+  #spectrum { flex:1; height:46px; min-width:0; background:#0f1216; border:1px solid var(--line); border-radius:8px; }
+  .vol { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+  input[type=range] { accent-color:var(--acc); cursor:pointer; }
   #login { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:10; }
   #login .box { width:min(360px,90vw); }
   #login h1 { margin-bottom:18px; }
   .err { color:#ff6b6b; font-size:13px; min-height:18px; margin-bottom:8px; }
   .muted { color:var(--dim); font-size:12px; }
+  h3.set-h { font-size:12px; text-transform:uppercase; color:var(--acc); letter-spacing:1px; margin:14px 0 8px; }
+  .set-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; }
+  @media (max-width:720px){ .set-grid { grid-template-columns:1fr; } }
+  .set-f label { display:block; font-size:12px; margin-bottom:4px; }
+  .set-f select { width:100%; background:#0f1216; border:1px solid var(--line); border-radius:8px; color:var(--txt); padding:9px 11px; font:inherit; }
+  .set-f.bool { display:flex; align-items:center; justify-content:space-between; gap:10px; background:#0f1216; border:1px solid var(--line); border-radius:8px; padding:9px 11px; }
 </style>
 </head>
 <body>
@@ -66,7 +77,15 @@
       <div class="toggle on" id="djToggle" title="вкл/выкл вставки ведущего"></div>
     </div>
   </header>
-  <audio controls preload="none" src="/radio.mp3"></audio>
+  <div class="player">
+    <button class="play-btn" id="playBtn" title="плей/пауза">▶</button>
+    <canvas id="spectrum"></canvas>
+    <div class="vol">
+      <span class="muted" title="громкость">🔊</span>
+      <input type="range" id="vol" min="0" max="1" step="0.01" value="1" style="width:90px">
+    </div>
+  </div>
+  <audio id="stream" preload="none" src="/radio.mp3"></audio>
 
   <div class="grid">
     <div class="card">
@@ -90,6 +109,18 @@
       <textarea id="kbText" placeholder="факты, байты, внутренние шутки студии…" style="min-height:52px"></textarea>
       <div class="row"><button id="kbBtn" class="ghost" style="color:var(--txt)">Запомнить</button><span class="msg" id="kbMsg"></span></div>
       <div class="items" id="kbList" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>⚙️ Настройки эфира <span class="muted">— применяются сразу, без рестарта</span></h2>
+    <div id="settingsBody"><div class="muted">загрузка…</div></div>
+    <div class="row" style="margin-top:12px">
+      <div>
+        <button id="settingsSave">Сохранить</button>
+        <button id="settingsReset" class="ghost" style="color:var(--txt)">Сбросить к дефолтам</button>
+      </div>
+      <span class="msg" id="settingsMsg"></span>
     </div>
   </div>
 
@@ -130,8 +161,8 @@ async function boot() {
   $('loginName').textContent = st.radioName;
   $('djName').textContent = st.djName;
   $('djToggle').classList.toggle('on', st.program.djEnabled);
-  refresh();
-  setInterval(refresh, 5000);
+  loadSettings();
+  refresh();  setInterval(refresh, 5000);
 }
 
 async function refresh() {
@@ -171,6 +202,62 @@ async function refreshLists() {
 window.delTopic = async (id) => { await api('/api/topics/' + id, { method:'DELETE' }); refreshLists(); };
 window.delKb = async (title) => { await api('/api/kb/' + title, { method:'DELETE' }); refreshLists(); };
 
+// ---------- плеер: плей / спектр / громкость ----------
+const stream = $('stream');
+const playBtn = $('playBtn');
+const spec = $('spectrum');
+let actx = null, analyser = null, rafId = null;
+
+$('vol').value = localStorage.getItem('radioVol') ?? 1;
+stream.volume = Number($('vol').value) || 1;
+$('vol').oninput = (e) => {
+  stream.volume = Number(e.target.value);
+  localStorage.setItem('radioVol', e.target.value);
+};
+
+playBtn.onclick = () => {
+  if (!stream.paused) {
+    stream.pause();
+    playBtn.textContent = '▶';
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    spec.getContext('2d').clearRect(0, 0, spec.width, spec.height);
+    return;
+  }
+  if (!actx) {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = actx.createMediaElementSource(stream);
+    analyser = actx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.8;
+    src.connect(analyser);
+    analyser.connect(actx.destination);
+  }
+  actx.resume();
+  stream.play().catch(() => { playBtn.textContent = '▶'; });
+  playBtn.textContent = '⏸';
+  drawSpectrum();
+};
+
+function drawSpectrum() {
+  rafId = requestAnimationFrame(drawSpectrum);
+  spec.width = Math.max(1, spec.clientWidth * (window.devicePixelRatio || 1));
+  spec.height = Math.max(1, spec.clientHeight * (window.devicePixelRatio || 1));
+  const g = spec.getContext('2d');
+  g.clearRect(0, 0, spec.width, spec.height);
+  if (!analyser) return;
+  const bins = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(bins);
+  const N = 56;
+  const bw = spec.width / N;
+  for (let i = 0; i < N; i++) {
+    const v = bins[i + 2] / 255;
+    const h = Math.max(2, v * spec.height * 0.92);
+    g.fillStyle = `rgba(255,92,57,${(0.3 + v * 0.7).toFixed(2)})`;
+    g.fillRect(i * bw + bw * 0.18, spec.height - h, bw * 0.64, h);
+  }
+}
+
 $('topicBtn').onclick = async () => {
   const r = await api('/api/topics', { method:'POST', body: JSON.stringify({ text: $('topicText').value }) });
   $('topicMsg').textContent = r.ok ? 'тема в очереди ✓' : r.error;
@@ -196,6 +283,78 @@ $('djToggle').onclick = async () => {
   const on = !$('djToggle').classList.contains('on');
   await api('/api/dj', { method:'POST', body: JSON.stringify({ enabled: on }) });
   $('djToggle').classList.toggle('on', on);
+};
+
+// ---------- настройки эфира ----------
+let setSchema = [];
+const fieldId = (key) => 'set_' + key.replace(/\./g, '__');
+
+async function loadSettings() {
+  try {
+    const r = await api('/api/settings');
+    setSchema = r.schema || [];
+    renderSettings(r.schema || [], r.values || {});
+  } catch { /* не авторизованы — покажет логин */ }
+}
+
+function renderSettings(schema, values) {
+  const groups = {};
+  for (const s of schema) (groups[s.group] = groups[s.group] || []).push(s);
+  let html = '';
+  for (const [g, items] of Object.entries(groups)) {
+    html += `<h3 class="set-h">${esc(g)}</h3><div class="set-grid">`;
+    for (const s of items) {
+      const id = fieldId(s.key);
+      const v = values[s.key];
+      if (s.type === 'bool') {
+        html += `<div class="set-f bool"><span class="muted">${esc(s.label)}</span>
+          <div class="toggle ${v ? 'on' : ''}" id="${id}"></div></div>`;
+      } else if (s.type === 'select') {
+        html += `<div class="set-f"><label>${esc(s.label)}</label><select id="${id}">
+          ${s.options.map((o) => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}
+        </select></div>`;
+      } else if (s.type === 'textarea') {
+        html += `<div class="set-f"><label>${esc(s.label)}</label><textarea id="${id}" style="min-height:44px">${esc(v || '')}</textarea></div>`;
+      } else if (s.type === 'number') {
+        html += `<div class="set-f"><label>${esc(s.label)}</label>
+          <input id="${id}" type="number" min="${s.min}" max="${s.max}" step="${s.step}" value="${v}"></div>`;
+      } else {
+        html += `<div class="set-f"><label>${esc(s.label)}</label>
+          <input id="${id}" type="text" value="${esc(v ?? '')}"></div>`;
+      }
+    }
+    html += '</div>';
+  }
+  $('settingsBody').innerHTML = html;
+  for (const el of document.querySelectorAll('#settingsBody .toggle')) {
+    el.onclick = () => el.classList.toggle('on');
+  }
+}
+
+function collectSettings() {
+  const patch = {};
+  for (const s of setSchema) {
+    const el = $(fieldId(s.key));
+    if (!el) continue;
+    patch[s.key] = s.type === 'bool' ? el.classList.contains('on') : el.value;
+  }
+  return patch;
+}
+
+$('settingsSave').onclick = async () => {
+  try {
+    const r = await api('/api/settings', { method:'POST', body: JSON.stringify(collectSettings()) });
+    if (!r.ok) { $('settingsMsg').textContent = r.error || 'ошибка'; return; }
+    $('settingsMsg').textContent = `сохранили ${Object.keys(r.applied || {}).length} ✓`;
+  } catch { $('settingsMsg').textContent = 'ошибка сохранения'; }
+  setTimeout(() => { $('settingsMsg').textContent = ''; }, 4000);
+};
+
+$('settingsReset').onclick = async () => {
+  const r = await api('/api/settings/reset', { method:'POST' });
+  renderSettings(r.schema || [], r.values || {});
+  $('settingsMsg').textContent = 'сброшено к дефолтам';
+  setTimeout(() => { $('settingsMsg').textContent = ''; }, 3000);
 };
 
 (async () => {

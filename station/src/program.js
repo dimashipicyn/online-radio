@@ -5,6 +5,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 const config = require('./config');
 const log = require('./logger');
+const settings = require('./settings');
 const { PcmFifo } = require('./pcm');
 const { TrackPlayer } = require('./player');
 const library = require('./library');
@@ -39,7 +40,6 @@ class Program {
     this.pendingAfterOverlay = null;  // трек, закончившийся во время оверлея
     this.preparingBreak = false;
     this.breakCounter = 0;
-    this.djEnabled = config.dj.enabled;
     this.nowPlaying = null;           // {title, artist, duration}
     this.startedAt = Date.now();
   }
@@ -61,7 +61,8 @@ class Program {
   status() {
     return {
       nowPlaying: this.nowPlaying,
-      djEnabled: this.djEnabled,
+      djEnabled: config.dj.enabled,
+      musicEnabled: config.music.enabled,
       insertQueue: this.inserts.length,
       preparing: this.preparingBreak,
       breaksToday: this.breakCounter,
@@ -71,6 +72,7 @@ class Program {
   // ---------------- музыка ----------------
 
   _startMusic() {
+    if (!config.music.enabled) return; // спич-режим: музыки нет, микшер льёт тишину
     if (this.player) return;
     let track = library.nextTrack({ category: 'music' });
     if (!track) {
@@ -117,7 +119,7 @@ class Program {
   }
 
   async _prepareBreakSoon(track, _remaining) {
-    if (!this.djEnabled || this.preparingBreak) return;
+    if (!config.dj.enabled || this.preparingBreak) return;
     this.preparingBreak = true;
     try {
       let insert = null;
@@ -165,8 +167,11 @@ class Program {
     if (!insert) return;
     if (priority) this.inserts.unshift(insert);
     else this.inserts.push(insert);
-    // если музыка стоит и ждём (и не звучит оверлей) — ткнём
-    if (!this.player && !this.currentInsert && !this.overlay) this._startMusic();
+    // если музыка стоит и ждём (и не звучит оверлей) — ткнём; в спич-режиме вставка идёт сразу в эфир
+    if (!this.player && !this.currentInsert && !this.overlay) {
+      if (config.music.enabled) this._startMusic();
+      else this._playNextInsertOrMusic();
+    }
   }
 
   _playNextInsertOrMusic(finishedTrack) {
@@ -326,15 +331,24 @@ class Program {
 
   /** Принудительная подготовка звонка (вызывает web.js). */
   async makeCall({ name, text }) {
-    const prompt = `Звонок слушателя ${name || 'аноним'}: «${text}»`;
-    const insert = await dj.prepareBreak({ kind: 'call', topic: prompt });
+    const who = name || 'аноним';
+    const insert = await dj.prepareBreak({
+      kind: 'call',
+      topic: `Звонок слушателя ${who}: «${text}»`,
+      call: { name: who, text },
+    });
     this.enqueueInsert(insert, { priority: true });
     return insert != null;
   }
 
   setDjEnabled(v) {
-    this.djEnabled = !!v;
-    return this.djEnabled;
+    settings.set({ 'dj.enabled': !!v }); // пишем через общие настройки — GUI подхватит
+    return config.dj.enabled;
+  }
+
+  /** Включили музыку, а эфир молчит — стартуем сразу. */
+  kickMusic() {
+    if (config.music.enabled && !this.player && !this.currentInsert) this._startMusic();
   }
 }
 

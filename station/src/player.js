@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const log = require('./logger');
+const settings = require('./settings');
 
 /**
  * Декодирует трек в s16le 44.1k stereo через ffmpeg и отдаёт PCM по требованию.
@@ -59,11 +60,15 @@ class TrackPlayer {
       '-hide_banner', '-loglevel', 'error',
       '-i', this.track.path,
       '-vn',
+    ];
+    const mv = Number(settings.get('audio.musicVolume'));
+    if (Number.isFinite(mv) && mv > 0 && mv !== 1) args.push('-af', `volume=${mv}`);
+    args.push(
       '-f', 's16le',
       '-ar', String(this.sampleRate),
       '-ac', String(this.channels),
       'pipe:1',
-    ];
+    );
     log.info(`player: играю «${this.track.artist || '?'} — ${this.track.title || path.basename(this.track.path)}»`);
     const ff = spawn('ffmpeg', args, { stdio: ['ignore', 'pipe', 'pipe'] });
     this.ff = ff;

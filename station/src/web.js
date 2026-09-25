@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const config = require('./config');
 const log = require('./logger');
+const settings = require('./settings');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const INDEX_HTML = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'));
@@ -90,6 +91,38 @@ function makeRoutes({ getStatus, program, kb, library, db }) {
       const v = program.setDjEnabled(body.enabled);
       send(res, 200, { enabled: v });
     },
+
+    'GET /api/settings': async (_req, res) => {
+      const all = settings.getAll();
+      const entry = all.schema.find((s) => s.key === 'ollama.model');
+      if (entry) {
+        const names = await listOllamaModels().catch(() => null);
+        if (names && names.length) {
+          entry.type = 'select';
+          entry.options = names;
+          // если текущая модель недоступна — показываем первую скачанную
+          if (!names.includes(all.values['ollama.model'])) all.values['ollama.model'] = names[0];
+        }
+      }
+      send(res, 200, all);
+    },
+    'POST /api/settings': async (_req, res, body) => {
+      try {
+        if (body && typeof body['ollama.model'] === 'string') {
+          const names = await listOllamaModels().catch(() => null);
+          if (names && !names.includes(body['ollama.model'])) {
+            return send(res, 400, { error: `такой модели нет в ollama. Доступны: ${names.join(', ')}` });
+          }
+        }
+        const applied = settings.set(body);
+        if (applied['music.enabled'] === true) program.kickMusic(); // включили музыку — эфир сразу зазвучит
+        send(res, 200, { ok: true, applied });
+      } catch (e) { send(res, 400, { error: e.message }); }
+    },
+    'POST /api/settings/reset': (_req, res) => {
+      settings.reset();
+      send(res, 200, { ok: true, ...settings.getAll() });
+    },
   };
 
   return { api, topics };
@@ -98,6 +131,17 @@ function makeRoutes({ getStatus, program, kb, library, db }) {
 function send(res, code, obj) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify(obj));
+}
+
+/** Список скачанных моделей ollama; null если недоступен. */
+async function listOllamaModels() {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 3000);
+  try {
+    const r = await fetch(`${config.ollama.host}/api/tags`, { signal: ctrl.signal });
+    const j = await r.json();
+    return (j.models || []).map((m) => m.name).filter(Boolean);
+  } finally { clearTimeout(t); }
 }
 
 function createWeb({ getStatus, program, kb, library, db }) {
