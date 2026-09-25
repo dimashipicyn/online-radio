@@ -100,6 +100,77 @@ def _numbers_to_words(text: str) -> str:
     return _NUM_RE.sub(repl, text)
 
 
+# --- латиница -> кириллица: Silero латиницу не озвучивает ---
+
+_WORD_MAP = {
+    "the": "зе", "one": "уан", "my": "май", "baby": "бэйби", "jazz": "джаз",
+    "we've": "уив", "don't": "донт", "i'm": "айм", "it's": "итс",
+    "that's": "зэтс", "you": "ю", "yeah": "йеа", "and": "энд", "of": "оф",
+    "head": "хэд", "keep": "кип", "up": "ап", "on": "он", "got": "гот",
+    "radio": "радио",
+}
+
+# длинное первым: 3-буквенные паттерны стоят раньше 2-буквенных с тем же началом
+_DIGRAPHS = [
+    ("tion", "шн"), ("ive", "айв"), ("ike", "айк"), ("ine", "айн"),
+    ("ile", "айл"), ("ibe", "айб"), ("ind", "айнд"), ("tion", "шн"),
+    ("tch", "тч"), ("ch", "ч"), ("sh", "ш"), ("ph", "ф"), ("th", "ф"),
+    ("ck", "к"), ("qu", "кв"), ("wh", "в"), ("gh", "г"),
+    ("ng", "нг"), ("nk", "нк"),
+    ("ee", "и"), ("ea", "и"), ("oo", "у"), ("ou", "ау"), ("ow", "ау"),
+    ("oa", "оу"), ("ai", "эй"), ("ay", "эй"), ("ei", "эй"), ("ey", "ей"),
+    ("oi", "ой"), ("oy", "ой"), ("au", "о"), ("aw", "о"), ("ie", "и"),
+    ("ew", "ю"), ("ue", "ю"), ("ya", "я"), ("yo", "ё"), ("yu", "ю"),
+    ("ja", "джа"), ("je", "дже"), ("ji", "джи"), ("jo", "джа"), ("ju", "джу"),
+    ("ll", "л"), ("ss", "с"), ("tt", "т"), ("mm", "м"), ("nn", "н"),
+    ("pp", "п"), ("rr", "р"), ("dd", "д"), ("ff", "ф"), ("gg", "г"),
+    ("zz", "з"), ("cc", "кс"),
+]
+
+_SINGLE = str.maketrans({
+    "a": "а", "b": "б", "c": "к", "d": "д", "e": "е", "f": "ф", "g": "г",
+    "h": "х", "i": "и", "j": "дж", "k": "к", "l": "л", "m": "м", "n": "н",
+    "o": "о", "p": "п", "q": "к", "r": "р", "s": "с", "t": "т", "u": "у",
+    "v": "в", "w": "у", "x": "кс", "y": "и", "z": "з",
+    "A": "А", "B": "Б", "C": "К", "D": "Д", "E": "Е", "F": "Ф", "G": "Г",
+    "H": "Х", "I": "И", "J": "Дж", "K": "К", "L": "Л", "M": "М", "N": "Н",
+    "O": "О", "P": "П", "Q": "К", "R": "Р", "S": "С", "T": "Т", "U": "У",
+    "V": "В", "W": "У", "X": "КС", "Y": "Й", "Z": "З",
+})
+
+_LAT_RUN = re.compile(r"[A-Za-z][A-Za-z'’]*")
+
+
+def _translit_word(w: str) -> str:
+    low = w.lower().replace("’", "'")
+    if low in _WORD_MAP:
+        out = _WORD_MAP[low]
+    else:
+        parts = []
+        i = 0
+        while i < len(low):
+            for dig, cyr in _DIGRAPHS:
+                if low.startswith(dig, i):
+                    parts.append(cyr)
+                    i += len(dig)
+                    break
+            else:
+                parts.append(low[i].translate(_SINGLE))
+                i += 1
+        out = "".join(parts)
+        # «Сторй» -> «Стори», «Философй» -> «Философи»
+        if len(out) > 2 and out.endswith("й"):
+            out = out[:-1] + "и"
+    if w and w[0].isupper():
+        out = out[:1].upper() + out[1:]
+    return out
+
+
+def _latin_to_cyr(text: str) -> str:
+    """Латиницу в читаемую кириллицу: «A Tribe Called Quest» -> «А Трайб Колед Квест»."""
+    return _LAT_RUN.sub(lambda m: _translit_word(m.group(0)), text)
+
+
 def _split_phrases(text: str, max_len: int = 400) -> list[str]:
     """Делит текст на фразы: на коротких отрезках Silero держит ровную просодию."""
     phrases: list[str] = []
@@ -211,6 +282,7 @@ def tts(req: TtsRequest):
     if not _state["ready"]:
         raise HTTPException(503, "модель ещё не готова")
     text = _numbers_to_words(req.text.strip())
+    text = _latin_to_cyr(text)
     if not text:
         raise HTTPException(400, "пустой текст")
     if len(text) > MAX_TEXT:
