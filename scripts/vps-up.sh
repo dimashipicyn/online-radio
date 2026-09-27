@@ -17,6 +17,7 @@ set +a
 : "${ICECAST_SOURCE_PASSWORD:?ICECAST_SOURCE_PASSWORD пуст в .env}"
 : "${FRP_TOKEN:?FRP_TOKEN пуст в .env}"
 
+mkdir -p frp
 umask 077
 cat > frp/frps.toml <<EOF
 bindPort = ${FRP_SERVER_PORT:-7000}
@@ -29,7 +30,21 @@ allowPorts = [
 ]
 EOF
 
-docker compose -f docker-compose.vps.yml up -d --build
+if docker compose version >/dev/null 2>&1; then
+  COMPOSE="docker compose"
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE="docker-compose"
+else
+  echo "ОШИБКА: Docker Compose не найден на сервере!" >&2
+  echo "Установите плагин:" >&2
+  echo "  sudo apt-get update && sudo apt-get install -y docker-compose-plugin" >&2
+  echo "или standalone docker-compose:" >&2
+  echo "  sudo apt-get install -y docker-compose" >&2
+  exit 1
+fi
+
+echo "Запуск через: $COMPOSE"
+$COMPOSE -f docker-compose.vps.yml up -d --build
 
 ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
 ip="${ip:-<IP-VPS>}"
