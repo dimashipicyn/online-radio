@@ -38,7 +38,7 @@ const config = {
     style: process.env.DJ_STYLE || '',              // своё описание персоны (перекрывает дефолт)
     leadSec: num(process.env.DJ_LEAD_SEC, 30),      // за сколько до конца трека готовить реплику
     chatterChance: Number(process.env.DJ_CHATTER_CHANCE ?? 0.4), // шанс болтовни без темы
-    maxTokens: num(process.env.DJ_MAX_TOKENS, 400),
+    maxTokens: num(process.env.DJ_MAX_TOKENS, 700),
     rate: numAny(process.env.DJ_RATE, 1.0),           // темп речи DJ (1 = норма)
     callerRate: numAny(process.env.CALLER_RATE, 1.0), // темп речи звонящего
     cohostEnabled: bool(process.env.COHOST_ENABLED, true),

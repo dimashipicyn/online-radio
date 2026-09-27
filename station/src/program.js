@@ -25,8 +25,8 @@ const DUCK_RAMP_SEC = 1.5;      // за сколько секунд музыка
 const MUSIC_DUCK_LEVEL = 0.18;  // уровень приглушённой музыки под голосом
 const INSERT_START_GAIN = 0.40; // с какой доли громкости входит голос
 const RELEASE_RAMP_SEC = 1.5;   // возврат громкости музыки после вставки
-const SPEECH_BED_LEAD_SEC = 6;  // за сколько до конца речи запускаем следующий трек
-const SPEECH_FADE_SEC = 4;      // нарастание музыки под хвостом спича
+const SPEECH_BED_LEAD_SEC = 3.5; // за сколько до конца речи запускаем следующий трек
+const SPEECH_FADE_SEC = 2.5;     // мягкий вход музыки под хвостом спича (до duck-уровня)
 
 function formatInsertMeta(insert) {
   const djName = settings.get('dj.name') || config.dj.name || 'Валера';
@@ -360,6 +360,8 @@ class Program {
           const t = this.bedTrack;
           this.bedTrack = null;
           this.nowPlaying = { title: t.title, artist: t.artist, duration: t.duration || null };
+          // Плавный возврат громкости музыки на 100% после того, как ведущий замолчал
+          this.duckRelease = { consumed: 0, total: RELEASE_RAMP_SEC * BYTES_PER_SEC, from: MUSIC_DUCK_LEVEL };
           return; // трек уже звучит, не стартуем второй
         }
         this._playNextInsertOrMusic(finishedTrack); // цепочкой до конца очереди
@@ -390,8 +392,11 @@ class Program {
     const music = this.player.readExact(speech.length);
     if (!music) return speech;
     for (let i = 0; i < speech.length; i += 2) {
+      // Плавное нарастание музыки под речью только до MUSIC_DUCK_LEVEL (0.18..0.25),
+      // чтобы трек НИКОГДА не глушил последние слова и финальную мысль ведущего!
       const t = Math.max(0, Math.min(1, (start + i - fadeFrom) / fadeBytes));
-      let v = Math.round(speech.readInt16LE(i) + music.readInt16LE(i) * t);
+      const musicGain = t * MUSIC_DUCK_LEVEL;
+      let v = Math.round(speech.readInt16LE(i) + music.readInt16LE(i) * musicGain);
       if (v > 32767) v = 32767;
       else if (v < -32768) v = -32768;
       speech.writeInt16LE(v, i);
