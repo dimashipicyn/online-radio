@@ -1,6 +1,4 @@
-# Только то, что живёт на VPS: icecast (слушатели) + frps (панель и TTS из дома).
-# Запуск: ./scripts/vps-up.sh
-name: online-radio-vps
+version: '3.8'
 
 services:
   icecast:
@@ -8,7 +6,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:?set in .env}
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD}
       ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD:-admin}
       ICECAST_HOSTNAME: ${ICECAST_HOSTNAME:-0.0.0.0}
       RADIO_NAME: ${RADIO_NAME:-Радио Слом}

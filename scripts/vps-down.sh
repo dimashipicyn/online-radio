@@ -12,4 +12,4 @@ else
 fi
 
 echo "Остановка через: $COMPOSE"
-$COMPOSE -f docker-compose.vps.yml down "$@"
+$COMPOSE -p online-radio-vps -f docker-compose.vps.yml down "$@"

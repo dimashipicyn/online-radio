@@ -44,7 +44,7 @@ else
 fi
 
 echo "Запуск через: $COMPOSE"
-$COMPOSE -f docker-compose.vps.yml up -d --build
+$COMPOSE -p online-radio-vps -f docker-compose.vps.yml up -d --build
 
 ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
 ip="${ip:-<IP-VPS>}"
