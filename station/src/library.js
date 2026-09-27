@@ -124,17 +124,106 @@ function logHistory(track) {
   markPlayed(track.id);
 }
 
-function search(query, limit = 15) {
-  const q = String(query || '').trim();
-  if (!q) return [];
-  const pattern = `%${q}%`;
-  return db.prepare(`
+const EN_TO_RU = {
+  q:'й', w:'ц', e:'у', r:'к', t:'е', y:'н', u:'г', i:'ш', o:'щ', p:'з', '[':'х', ']':'ъ',
+  a:'ф', s:'ы', d:'в', f:'а', g:'п', h:'р', j:'о', k:'л', l:'д', ';':'ж', "'":'э',
+  z:'я', x:'ч', c:'с', v:'м', b:'и', n:'т', m:'ь', ',':'б', '.':'ю'
+};
+const RU_TO_EN = Object.fromEntries(Object.entries(EN_TO_RU).map(([k, v]) => [v, k]));
+
+const LAT_TO_CYR = [
+  ['shch', 'щ'], ['yo', 'ё'], ['zh', 'ж'], ['ch', 'ч'], ['sh', 'ш'],
+  ['yu', 'ю'], ['ya', 'я'], ['ts', 'ц'], ['kh', 'х'],
+  ['a', 'а'], ['b', 'б'], ['v', 'в'], ['g', 'г'], ['d', 'д'], ['e', 'е'],
+  ['z', 'з'], ['i', 'и'], ['j', 'й'], ['k', 'к'], ['l', 'л'], ['m', 'м'],
+  ['n', 'н'], ['o', 'о'], ['p', 'п'], ['r', 'р'], ['s', 'с'], ['t', 'т'],
+  ['u', 'у'], ['f', 'ф'], ['y', 'ы']
+];
+
+const CYR_TO_LAT = [
+  ['щ', 'shch'], ['ё', 'yo'], ['ж', 'zh'], ['ч', 'ch'], ['ш', 'sh'],
+  ['ю', 'yu'], ['я', 'ya'], ['ц', 'ts'], ['х', 'kh'],
+  ['а', 'a'], ['б', 'b'], ['в', 'v'], ['г', 'g'], ['д', 'd'], ['е', 'e'],
+  ['з', 'z'], ['и', 'i'], ['й', 'y'], ['к', 'k'], ['л', 'l'], ['м', 'm'],
+  ['н', 'n'], ['о', 'o'], ['п', 'p'], ['р', 'r'], ['с', 's'], ['т', 't'],
+  ['у', 'u'], ['ф', 'f'], ['ы', 'y'], ['э', 'e'], ['ь', ''], ['ъ', '']
+];
+
+function alternateQueries(query) {
+  const s = String(query || '').trim().toLowerCase();
+  if (!s) return [];
+  const set = new Set();
+
+  // 1. Ошибочная раскладка клавиатуры
+  const toRu = s.split('').map((c) => EN_TO_RU[c] || c).join('');
+  if (toRu !== s) set.add(toRu);
+  const toEn = s.split('').map((c) => RU_TO_EN[c] || c).join('');
+  if (toEn !== s) set.add(toEn);
+
+  // 2. Транслитерация
+  let cyr = s;
+  for (const [lat, c] of LAT_TO_CYR) cyr = cyr.replaceAll(lat, c);
+  if (cyr !== s) set.add(cyr);
+  let lat = s;
+  for (const [c, l] of CYR_TO_LAT) lat = lat.replaceAll(c, l);
+  if (lat !== s) set.add(lat);
+
+  return [...set];
+}
+
+function searchByTokens(q, limit) {
+  const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const clauses = words.map(() => "(ru_lower(title) LIKE ? OR ru_lower(artist) LIKE ? OR ru_lower(album) LIKE ?)");
+  const params = [];
+  for (const w of words) {
+    const p = `%${w}%`;
+    params.push(p, p, p);
+  }
+  const sql = `
     SELECT id, title, artist, album, duration
     FROM tracks
-    WHERE category='music' AND duration > 0 AND (title LIKE ? OR artist LIKE ?)
+    WHERE category='music' AND duration > 0 AND ${clauses.join(' AND ')}
     ORDER BY play_count ASC, title ASC
     LIMIT ?
-  `).all(pattern, pattern, Math.min(50, Math.max(1, Number(limit) || 15)));
+  `;
+  return db.prepare(sql).all(...params, limit);
+}
+
+function search(query, limit = 20) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  const max = Math.min(50, Math.max(1, Number(limit) || 20));
+
+  const seen = new Set();
+  const results = [];
+
+  // Прямой поиск
+  const primary = searchByTokens(q, max);
+  for (const t of primary) {
+    if (!seen.has(t.id)) {
+      seen.add(t.id);
+      results.push(t);
+    }
+  }
+
+  // Если мало результатов — проверяем альтернативные варианты (раскладка и транслит)
+  if (results.length < max) {
+    const alts = alternateQueries(q);
+    for (const alt of alts) {
+      if (results.length >= max) break;
+      const extra = searchByTokens(alt, max - results.length);
+      for (const t of extra) {
+        if (!seen.has(t.id)) {
+          seen.add(t.id);
+          results.push(t);
+          if (results.length >= max) break;
+        }
+      }
+    }
+  }
+
+  return results;
 }
 
 function getTrackById(id) {

@@ -9,6 +9,7 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 
 const db = new Database(path.join(DATA_DIR, 'radio.db'));
 db.pragma('journal_mode = WAL');
+db.function('ru_lower', (s) => (s != null ? String(s).toLowerCase() : ''));
 
 db.exec(`
 CREATE TABLE IF NOT EXISTS tracks (
