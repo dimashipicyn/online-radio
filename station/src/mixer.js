@@ -115,14 +115,19 @@ class Mixer {
 
   _startPacer() {
     const silence = Buffer.alloc(CHUNK_BYTES);
+    let feederErrCount = 0;
     this.pacer = setInterval(() => {
       const ff = this.ffmpeg;
       if (!ff || ff.stdin.destroyed) return;
       let chunk = null;
       try {
         chunk = this.feederProgram ? this.feederProgram.readChunk() : null;
+        feederErrCount = 0;
       } catch (err) {
-        log.error('mixer: ошибка feeder, перехожу на тишину:', err.message);
+        feederErrCount++;
+        if (feederErrCount <= 3 || feederErrCount % 100 === 0) {
+          log.error(`mixer: ошибка feeder (${feederErrCount}x), перехожу на тишину:`, err.message);
+        }
         chunk = null;
       }
       const buf = chunk && chunk.length === CHUNK_BYTES ? chunk : silence;

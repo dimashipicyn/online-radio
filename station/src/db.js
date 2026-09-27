@@ -47,6 +47,39 @@ CREATE TABLE IF NOT EXISTS kv (
   key TEXT PRIMARY KEY,
   value TEXT
 );
+CREATE TABLE IF NOT EXISTS rss_feeds (
+  id INTEGER PRIMARY KEY,
+  url TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  enabled INTEGER DEFAULT 1,
+  last_fetched_at INTEGER,
+  last_status TEXT,
+  error TEXT
+);
+CREATE TABLE IF NOT EXISTS news (
+  id INTEGER PRIMARY KEY,
+  feed_id INTEGER,
+  title TEXT NOT NULL,
+  link TEXT,
+  summary TEXT,
+  pub_date INTEGER,
+  guid TEXT UNIQUE,
+  status TEXT DEFAULT 'pending',  -- pending | queued | used | discarded
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_news_status ON news(status);
+CREATE INDEX IF NOT EXISTS idx_news_created_at ON news(created_at);
+
+CREATE TABLE IF NOT EXISTS requests (
+  id INTEGER PRIMARY KEY,
+  track_id INTEGER NOT NULL,
+  user_name TEXT,
+  message TEXT,
+  status TEXT DEFAULT 'pending',  -- pending | played | discarded
+  created_at INTEGER NOT NULL,
+  played_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_requests_status ON requests(status);
 `);
 
 const kvGet = (key, def = null) => {

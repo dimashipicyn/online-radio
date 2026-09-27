@@ -75,9 +75,13 @@ class TrackPlayer {
     ff.stdout.on('data', (d) => this._push(d));
     ff.stderr.on('data', (d) => log.warn('ffmpeg[dec]:', d.toString().trim().split('\n')[0]));
     ff.on('error', (err) => this._fail(err));
-    ff.on('close', () => {
+    ff.on('close', (code) => {
       this.ff = null;
-      this._maybeDone();
+      if (code !== 0 && this.decodedBytes === 0) {
+        this._fail(new Error(`ffmpeg завершился с ошибкой (код ${code})`));
+      } else {
+        this._maybeDone();
+      }
     });
   }
 
@@ -131,7 +135,8 @@ class TrackPlayer {
   }
 
   _fail(err) {
-    if (this.stopped) return;
+    if (this.stopped || this.doneFired) return;
+    this.stopped = true;
     log.error('player: ошибка декодирования:', err.message);
     if (this.onError) this.onError(this, err);
   }

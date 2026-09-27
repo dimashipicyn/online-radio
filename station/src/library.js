@@ -36,8 +36,16 @@ async function scan(musicDir) {
       if (row && row.mtime === mtime && row.duration > 0) continue;
       try {
         const meta = await probe(file);
+        if (!meta.duration || meta.duration <= 0) {
+          log.warn(`library: пропуск невалидного файла (duration=0): ${file}`);
+          if (row) {
+            db.prepare('DELETE FROM tracks WHERE id=?').run(row.id);
+          }
+          continue;
+        }
         const category =
-          file.toLowerCase().includes(`${path.sep}jingle`) || meta.duration <= JINGLE_MAX_SEC
+          file.toLowerCase().includes(`${path.sep}jingle`) ||
+          (meta.duration > 0 && meta.duration <= JINGLE_MAX_SEC)
             ? 'jingle'
             : 'music';
         if (!row) {
@@ -83,7 +91,10 @@ function nextTrack({ category = 'music' } = {}) {
 function peekTrack({ category = 'music' } = {}) {
   const rows = db
     .prepare(
-      `SELECT * FROM tracks WHERE category=? ORDER BY (last_played IS NULL) DESC, last_played ASC LIMIT 50`
+      `SELECT * FROM tracks 
+        WHERE category=? AND duration > 0
+        ORDER BY (last_played IS NULL) DESC, RANDOM() 
+        LIMIT 50`
     )
     .all(category);
   if (!rows.length) return null;
@@ -113,4 +124,21 @@ function logHistory(track) {
   markPlayed(track.id);
 }
 
-module.exports = { scan, nextTrack, peekTrack, markPlayed, history, logHistory };
+function search(query, limit = 15) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  const pattern = `%${q}%`;
+  return db.prepare(`
+    SELECT id, title, artist, album, duration
+    FROM tracks
+    WHERE category='music' AND duration > 0 AND (title LIKE ? OR artist LIKE ?)
+    ORDER BY play_count ASC, title ASC
+    LIMIT ?
+  `).all(pattern, pattern, Math.min(50, Math.max(1, Number(limit) || 15)));
+}
+
+function getTrackById(id) {
+  return db.prepare('SELECT * FROM tracks WHERE id=?').get(id);
+}
+
+module.exports = { scan, nextTrack, peekTrack, markPlayed, history, logHistory, search, getTrackById };

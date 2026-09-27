@@ -24,6 +24,7 @@ const SCHEMA = [
 
   { key: 'dj.callerSpeaker', type: 'select',   group: 'Звонящие',   label: 'Голос звонящего', options: VOICES },
   { key: 'dj.callerRate',    type: 'number',   group: 'Звонящие',   label: 'Темп речи звонящего (1 = норма)', min: 0.5, max: 2, step: 0.05 },
+  { key: 'call.saveToKb',    type: 'bool',     group: 'Звонящие',   label: 'Сохранять выжимку звонка в базу знаний (RAG)' },
 
   { key: 'music.enabled',    type: 'bool',     group: 'Музыка',     label: 'Музыка в эфире' },
   { key: 'audio.musicVolume', type: 'number',  group: 'Музыка',     label: 'Громкость музыки (1 = норма)', min: 0, max: 1.5, step: 0.05 },
@@ -39,6 +40,16 @@ const SCHEMA = [
   { key: 'audio.presence',       type: 'number', group: 'Звук',     label: 'Чёткость, дБ (2.7 кГц)', min: 0, max: 4, step: 0.5 },
   { key: 'audio.room',           type: 'number', group: 'Звук',     label: 'Комната, лёгкое эхо', min: 0, max: 0.5, step: 0.05 },
   { key: 'audio.rnn',            type: 'bool',   group: 'Звук',     label: 'Нейро-шумодав (эксперимент)' },
+
+  { key: 'news.enabled',        type: 'bool',   group: 'Новости и RSS', label: 'Новости в эфире' },
+  { key: 'news.intervalTracks', type: 'number', group: 'Новости и RSS', label: 'Выпуск каждые N треков (0 = выкл)', min: 0, max: 30, step: 1 },
+  { key: 'news.itemsPerBreak',  type: 'number', group: 'Новости и RSS', label: 'Новостей в одном выпуске', min: 1, max: 4, step: 1 },
+  { key: 'rss.pollIntervalMin', type: 'number', group: 'Новости и RSS', label: 'Период опроса RSS (мин)', min: 5, max: 180, step: 5 },
+
+  { key: 'weather.enabled',     type: 'bool',   group: 'Погода',     label: 'Учитывать погоду за окном в репликах ведущего' },
+  { key: 'weather.city',        type: 'text',   group: 'Погода',     label: 'Город вещания (для погоды)' },
+  { key: 'weather.lat',         type: 'number', group: 'Погода',     label: 'Широта (latitude)', min: -90, max: 90, step: 0.001 },
+  { key: 'weather.lon',         type: 'number', group: 'Погода',     label: 'Долгота (longitude)', min: -180, max: 180, step: 0.001 },
 
   { key: 'ollama.model',     type: 'text',     group: 'Система',    label: 'Модель Ollama (из скачанных)', required: true },
 ];

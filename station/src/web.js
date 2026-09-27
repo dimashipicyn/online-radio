@@ -7,6 +7,7 @@ const path = require('path');
 const config = require('./config');
 const log = require('./logger');
 const settings = require('./settings');
+const weather = require('./weather');
 
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const INDEX_HTML = fs.readFileSync(path.join(PUBLIC_DIR, 'index.html'));
@@ -18,8 +19,15 @@ const LOGIN_MAX_FAILS = 5;
 const CALL_GAP = 45 * 1000;
 const fails = new Map(); // ip -> {count, until}
 const callHits = new Map(); // ip -> last timestamp
+const requestHits = new Map(); // ip -> last timestamp
 
-function makeRoutes({ getStatus, program, kb, library, db }) {
+function hasAuth(req) {
+  const cookieHeader = req.headers.cookie || '';
+  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]+)`));
+  return Boolean(match && match[1] === AUTH_TOKEN);
+}
+
+function makeRoutes({ getStatus, program, kb, library, rss, db }) {
   const topics = {
     list: () => db.prepare(`SELECT id,text,status,created_at FROM topics ORDER BY id DESC LIMIT 50`).all(),
     add: (text) => db.prepare(`INSERT INTO topics(text,created_at) VALUES(?,?)`).run(text, Date.now()),
@@ -43,30 +51,102 @@ function makeRoutes({ getStatus, program, kb, library, db }) {
       send(res, 403, { error: 'неверный пароль' });
     },
 
-    'GET /api/now': (_req, res) => {
+    'GET /api/now': async (_req, res) => {
       const st = getStatus();
       const np = program.nowPlaying;
+      const p = program.player;
+      const nxt = program._ensureNextTrack ? program._ensureNextTrack() : null;
+      let w = null;
+      try { w = await weather.getWeather(); } catch { /* ок */ }
       send(res, 200, {
         radioName: config.dj.radioName,
         live: Boolean(st.mixer && st.mixer.online),
-        nowPlaying: np ? { title: np.title || '', artist: np.artist || '' } : null,
+        weather: w ? { city: w.city, temp: w.temp, cond: w.cond, text: w.text } : null,
+        nowPlaying: np ? {
+          title: np.title || '',
+          artist: np.artist || '',
+          duration: np.duration || null,
+          playedSec: p ? Math.round(p.playedSec) : null,
+          remainingSec: p ? Math.round(p.remainingSec) : null,
+          isInsert: Boolean(np.isInsert),
+        } : null,
+        nextTrack: nxt ? {
+          title: nxt.title || '',
+          artist: nxt.artist || '',
+        } : null,
       });
     },
 
-    'GET /api/state': (req, res) => {
+    'GET /api/state': async (req, res) => {
       const st = getStatus();
+      const p = program.player;
+      let w = null;
+      try { w = await weather.getWeather(); } catch { /* ок */ }
       send(res, 200, {
         radioName: config.dj.radioName,
         djName: config.dj.name,
         mixer: st.mixer,
+        weather: w ? { city: w.city, temp: w.temp, cond: w.cond, text: w.text } : null,
         program: program.status(),
-        nowPlaying: program.nowPlaying,
-        history: library.history(8),
-        tracks: db.prepare(`SELECT COUNT(*) c FROM tracks`).get().c,
+        nowPlaying: program.nowPlaying ? {
+          ...program.nowPlaying,
+          playedSec: p ? Math.round(p.playedSec) : null,
+          remainingSec: p ? Math.round(p.remainingSec) : null,
+        } : null,
+        nextTrack: program._ensureNextTrack ? program._ensureNextTrack() : null,
+        history: library.history(10),
+        tracks: db.prepare(`SELECT COUNT(*) c FROM tracks WHERE duration > 0`).get().c,
       });
     },
 
+    'GET /api/tracks/search': (req, res) => {
+      const url = new URL(req.url, 'http://x');
+      const q = url.searchParams.get('q') || '';
+      const items = library.search(q, 15);
+      send(res, 200, { items });
+    },
+
+    'POST /api/requests': (req, res, body) => {
+      const ip = req.socket.remoteAddress || '?';
+      const last = requestHits.get(ip) || 0;
+      if (Date.now() - last < 45 * 1000) return send(res, 429, { error: 'Пожалуйста, подождите немного перед следующим заказом' });
+      const trackId = Number(body.trackId);
+      if (!trackId) return send(res, 400, { error: 'Выберите трек для заказа' });
+      const userName = String(body.userName || body.name || '').trim();
+      const message = String(body.message || '').trim();
+      const r = program.makeRequest({ trackId, userName, message });
+      if (!r.ok) return send(res, 400, r);
+      requestHits.set(ip, Date.now());
+      send(res, 200, { ok: true, id: r.id, track: r.track });
+    },
+
+    'GET /api/requests': (_req, res) => {
+      const items = db.prepare(`
+        SELECT r.id, r.track_id, r.user_name, r.message, r.status, r.created_at, r.played_at,
+               t.title, t.artist, t.duration
+        FROM requests r
+        JOIN tracks t ON r.track_id = t.id
+        ORDER BY r.id DESC
+        LIMIT 20
+      `).all();
+      send(res, 200, { items });
+    },
+
+    'DELETE /api/requests/:id': (_req, res, _body, params) => {
+      db.prepare('DELETE FROM requests WHERE id=?').run(Number(params.id));
+      send(res, 200, { ok: true });
+    },
+
     // --- защищённое ---
+    'POST /api/skip': (_req, res) => {
+      const np = program.skip();
+      send(res, 200, { ok: true, nowPlaying: np });
+    },
+
+    'POST /api/logout': (_req, res) => {
+      res.setHeader('Set-Cookie', `${COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`);
+      send(res, 200, { ok: true });
+    },
     'POST /api/topics': (_req, res, body) => {
       const text = String(body.text || '').trim();
       if (!text) return send(res, 400, { error: 'пусто' });
@@ -86,9 +166,65 @@ function makeRoutes({ getStatus, program, kb, library, db }) {
       const text = String(body.text || '').trim();
       if (!text) return send(res, 400, { error: 'пусто' });
       callHits.set(ip, Date.now());
-      const ok = await program.makeCall({ name: String(body.name || '').slice(0, 40), text: text.slice(0, 500) });
+      const ok = await program.makeCall({
+        name: String(body.name || '').slice(0, 40),
+        text: text.slice(0, 500),
+        gender: body.gender || 'auto',
+        mood: body.mood || null,
+      });
       if (!ok) callHits.delete(ip);
       send(res, ok ? 200 : 503, { ok, error: ok ? undefined : 'dj/tts недоступен' });
+    },
+
+    'POST /api/dj/break': async (_req, res, body) => {
+      const topic = body && body.topic ? String(body.topic).trim() : null;
+      const result = await program.triggerBreakNow({ topic });
+      send(res, result.ok ? 200 : 500, result);
+    },
+
+    // --- новости и RSS ---
+    'GET /api/news': (_req, res) => {
+      send(res, 200, { items: rss.getNews({ limit: 40 }), feeds: rss.getFeeds() });
+    },
+    'POST /api/news/refresh': async (_req, res) => {
+      const stats = await rss.fetchAllFeeds();
+      send(res, 200, { ok: true, stats });
+    },
+    'POST /api/news/:id/queue': (_req, res, _body, params) => {
+      try {
+        const r = rss.queueNewsToTopic(Number(params.id));
+        send(res, 200, r);
+      } catch (e) {
+        send(res, 400, { error: e.message });
+      }
+    },
+    'POST /api/news/:id/dismiss': (_req, res, _body, params) => {
+      rss.markDiscarded(Number(params.id));
+      send(res, 200, { ok: true });
+    },
+    'POST /api/news/break': async (_req, res, body) => {
+      const newsId = body && body.newsId ? Number(body.newsId) : null;
+      const result = await program.triggerNewsBreakNow({ newsId });
+      send(res, result.ok ? 200 : 500, result);
+    },
+    'GET /api/rss/feeds': (_req, res) => {
+      send(res, 200, { items: rss.getFeeds() });
+    },
+    'POST /api/rss/feeds': async (_req, res, body) => {
+      try {
+        const feed = await rss.addFeed({ name: body.name, url: body.url });
+        send(res, 200, { ok: true, feed });
+      } catch (e) {
+        send(res, 400, { error: e.message });
+      }
+    },
+    'DELETE /api/rss/feeds/:id': (_req, res, _body, params) => {
+      rss.deleteFeed(Number(params.id));
+      send(res, 200, { ok: true });
+    },
+    'POST /api/rss/feeds/:id/toggle': (_req, res, body, params) => {
+      rss.toggleFeed(Number(params.id), body.enabled);
+      send(res, 200, { ok: true });
     },
 
     'GET /api/kb': (_req, res) => send(res, 200, { items: kb.entries() }),
@@ -161,8 +297,8 @@ async function listOllamaModels() {
   } finally { clearTimeout(t); }
 }
 
-function createWeb({ getStatus, program, kb, library, db }) {
-  const { api } = makeRoutes({ getStatus, program, kb, library, db });
+function createWeb({ getStatus, program, kb, library, rss, db }) {
+  const { api } = makeRoutes({ getStatus, program, kb, library, rss, db });
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -203,9 +339,13 @@ function createWeb({ getStatus, program, kb, library, db }) {
       if (!handler) return send(res, 404, { error: 'not found' });
 
       const isPublic = url.pathname === '/api/login'
+        || url.pathname === '/api/logout'
         || url.pathname === '/api/now'
-        || (method === 'POST' && url.pathname === '/api/calls');
-      if (!isPublic && req.headers.cookie !== `${COOKIE}=${AUTH_TOKEN}`) {
+        || (method === 'POST' && url.pathname === '/api/calls')
+        || (method === 'GET' && url.pathname === '/api/tracks/search')
+        || (method === 'POST' && url.pathname === '/api/requests')
+        || (method === 'GET' && url.pathname === '/api/requests');
+      if (!isPublic && !hasAuth(req)) {
         return send(res, 401, { error: 'неавторизован' });
       }
 

@@ -5,329 +5,1567 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Радио Слом</title>
 <style>
-  :root { --bg:#0d0f12; --card:#161a20; --line:#242a33; --txt:#e6e9ee; --dim:#8a94a3; --acc:#ff5c39; color-scheme:dark; }
-  * { box-sizing:border-box; margin:0; padding:0; }
-  body { background:var(--bg); color:var(--txt); font:15px/1.5 system-ui,-apple-system,sans-serif; }
-  .wrap { max-width:880px; margin:0 auto; padding:20px 16px 60px; }
-  body:not(.authed) .admin-only { display:none; }
-  header { display:flex; align-items:center; gap:12px; margin:8px 0 18px; flex-wrap:wrap; }
-  header > * { min-width:0; }
-  header .spacer { margin-left:auto; }
-  #adminBtn { margin-left:0; padding:7px 14px; font-size:13px; color:var(--txt); }
-  body.authed #adminBtn { display:none; }
-  h1, #stats { overflow-wrap:anywhere; }
-  #stats:empty { display:none; }
-  h1 { font-size:26px; letter-spacing:.5px; }
-  .live { background:var(--acc); color:#fff; font-size:11px; font-weight:700; padding:3px 9px; border-radius:20px; letter-spacing:1px; flex-shrink:0; }
-  .live.off { background:#3a4149; }
-  audio#stream { display:none; }
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-  @media (max-width:720px){ .grid { grid-template-columns:1fr; } }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
-  .card h2 { font-size:14px; text-transform:uppercase; letter-spacing:1px; color:var(--dim); margin-bottom:12px; }
-  .card h2 .muted { text-transform:none; letter-spacing:0; font-weight:400; }
-  .np-title { font-size:19px; font-weight:600; min-height:26px; overflow-wrap:anywhere; }
-  .np-artist { color:var(--dim); min-height:20px; overflow-wrap:anywhere; }
-  .np-dj { margin-top:8px; color:var(--acc); font-size:13px; min-height:18px; white-space:pre-line; overflow-wrap:anywhere; }
-  ul.hist { list-style:none; font-size:13px; color:var(--dim); }
-  ul.hist:empty::before { content:"пока пусто"; color:var(--dim); font-size:13px; }
-  ul.hist li { padding:3px 0; border-bottom:1px dashed var(--line); overflow-wrap:anywhere; }
-  ul.hist li:last-child { border:none; }
-  textarea, input:not([type=range]) { width:100%; background:#0f1216; border:1px solid var(--line); border-radius:8px; color:var(--txt); padding:9px 11px; font:inherit; margin-bottom:8px; }
-  textarea { resize:vertical; min-height:64px; }
-  input::placeholder, textarea::placeholder { color:#7d8794; opacity:1; }
-  input[type=range] { width:100%; max-width:140px; height:24px; margin:0; padding:0; border:none; background:transparent; accent-color:var(--acc); cursor:pointer; }
-  button { background:var(--acc); border:none; color:#fff; padding:9px 16px; border-radius:8px; font-weight:600; cursor:pointer; font:inherit; }
-  button:hover { filter:brightness(1.1); }
-  button.ghost { background:transparent; border:1px solid var(--line); color:var(--dim); padding:3px 10px; font-size:12px; }
-  #settingsReset, #loginClose { padding:9px 16px; font-size:inherit; }
-  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .row > input, .row > textarea { flex:1; width:auto; min-width:0; margin-bottom:0; }
-  .row > .msg { flex:1 1 140px; min-width:0; margin-top:0; }
-  button:disabled { opacity:.55; cursor:default; filter:none; }
-  .items { max-height:220px; overflow:auto; font-size:14px; }
-  .items .it { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 0; border-bottom:1px dashed var(--line); }
-  .items .it > span { flex:1; min-width:0; overflow-wrap:anywhere; }
-  .items .it > button { flex-shrink:0; min-width:32px; min-height:32px; padding:4px 8px; }
-  .items .it:last-child { border:none; }
-  .msg { font-size:12px; color:var(--dim); min-height:16px; margin-top:4px; }
-  .switch { display:flex; align-items:center; gap:10px; }
-  button.toggle { width:44px; height:24px; padding:0; border:none; border-radius:12px; background:#3a4149; position:relative; cursor:pointer; transition:.2s; flex-shrink:0; }
-  button.toggle.on { background:var(--acc); }
-  button.toggle::after { content:''; position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#fff; transition:.2s; }
-  button.toggle.on::after { left:23px; }
-  button.toggle:focus-visible, button:focus-visible { outline:2px solid var(--acc); outline-offset:2px; }
-  .player { display:flex; align-items:center; gap:12px; margin:8px 0 22px; flex-wrap:wrap; }
-  .play-btn { width:46px; height:46px; min-width:46px; border-radius:50%; font-size:15px; line-height:1; overflow:hidden; display:flex; align-items:center; justify-content:center; padding:0; }
-  #spectrum { flex:1 1 140px; height:46px; min-width:120px; background:#0f1216; border:1px solid var(--line); border-radius:8px; }
-  .vol { display:flex; align-items:center; gap:6px; flex:1 1 140px; }
-  #login { position:fixed; inset:0; background:rgba(8,9,12,.72); display:flex; align-items:center; justify-content:center; z-index:10; padding:16px; overflow:auto; overscroll-behavior:none; }
-  #login .box { width:min(360px,100%); margin:auto; }
-  #loginClose { width:100%; margin-top:8px; }
-  #login h1 { margin-bottom:18px; }
-  .err { color:#ff6b6b; font-size:13px; min-height:18px; margin-bottom:8px; }
-  .muted { color:var(--dim); font-size:12px; }
-  h3.set-h { font-size:12px; text-transform:uppercase; color:var(--acc); letter-spacing:1px; margin:14px 0 8px; }
-  .set-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; }
-  @media (max-width:720px){ .set-grid { grid-template-columns:1fr; } }
-  .set-f label { display:block; font-size:12px; margin-bottom:4px; }
-  .set-f select { width:100%; background:#0f1216; border:1px solid var(--line); border-radius:8px; color:var(--txt); padding:9px 11px; font:inherit; }
-  .set-f input, .set-f textarea, .set-f select { margin-bottom:0; }
-  .set-grid .set-f:has(textarea) { grid-column:1 / -1; }
-  .set-f.bool { display:flex; align-items:center; justify-content:space-between; gap:10px; background:#0f1216; border:1px solid var(--line); border-radius:8px; padding:9px 11px; }
+  :root {
+    --bg: #0c0e12;
+    --card: #15181f;
+    --card-hover: #1a1e27;
+    --card-alt: #101319;
+    --line: #232834;
+    --line-light: #2f3646;
+    --txt: #e7ebf2;
+    --dim: #8b95a5;
+    --acc: #ff5c39;
+    --acc-hover: #ff7354;
+    --acc-glow: rgba(255, 92, 57, 0.22);
+    --green: #2ecc71;
+    --red: #e74c3c;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 20px 18px 80px; }
+
+  /* Скрытие админки для гостей */
+  body:not(.authed) .admin-only { display: none !important; }
+  body.authed .guest-only { display: none !important; }
+
+  /* Шапка */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 6px 0 20px;
+    flex-wrap: wrap;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; }
+  h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.3px; display: flex; align-items: center; gap: 8px; }
+  .live-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--acc);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+    letter-spacing: 0.8px;
+    box-shadow: 0 0 12px var(--acc-glow);
+    transition: background .2s, box-shadow .2s;
+  }
+  .live-badge .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: #fff;
+    animation: pulse 1.8s infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.85); } }
+  .live-badge.off { background: #353b47; box-shadow: none; }
+  .live-badge.off .dot { animation: none; background: #888; }
+  .stats-pill {
+    background: var(--card-alt);
+    border: 1px solid var(--line);
+    color: var(--dim);
+    font-size: 12px;
+    padding: 3px 10px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+  .header-actions { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+
+  /* Карточки и сетка */
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 740px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+    position: relative;
+    transition: border-color .2s;
+  }
+  .card:hover { border-color: var(--line-light); }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .card h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 700;
+  }
+
+  /* Плеер */
+  .player-bar {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 8px 0 20px;
+    flex-wrap: wrap;
+  }
+  .play-btn {
+    width: 48px; height: 48px; min-width: 48px;
+    border-radius: 50%;
+    background: var(--acc);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    box-shadow: 0 4px 16px var(--acc-glow);
+    transition: transform .15s, background .15s, filter .15s;
+    user-select: none;
+  }
+  .play-btn:hover { background: var(--acc-hover); transform: scale(1.04); }
+  .play-btn:active { transform: scale(0.96); }
+  .play-btn.loading { animation: spin 1s linear infinite; pointer-events: none; opacity: 0.85; }
+  @keyframes spin { 100% { transform: rotate(360deg); } }
+
+  #spectrum {
+    flex: 1 1 160px;
+    height: 48px;
+    min-width: 120px;
+    background: var(--card-alt);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .vol-box {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 0 1 170px;
+    min-width: 140px;
+  }
+  .mute-btn {
+    background: transparent;
+    border: none;
+    color: var(--dim);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    border-radius: 6px;
+    transition: color .2s;
+  }
+  .mute-btn:hover { color: var(--txt); }
+  input[type=range] {
+    width: 100%;
+    height: 6px;
+    border-radius: 3px;
+    accent-color: var(--acc);
+    cursor: pointer;
+    background: #252b37;
+    outline: none;
+  }
+
+  /* Блок "В эфире" */
+  .np-body { display: flex; flex-direction: column; gap: 8px; }
+  .np-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .np-title {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.2px;
+    overflow-wrap: anywhere;
+    color: var(--txt);
+  }
+  .np-artist {
+    font-size: 15px;
+    color: var(--dim);
+    overflow-wrap: anywhere;
+    font-weight: 500;
+  }
+  .copy-btn {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--dim);
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    transition: .15s;
+  }
+  .copy-btn:hover { color: var(--txt); border-color: var(--dim); }
+
+  /* Прогресс-бар трека */
+  .progress-wrap { margin-top: 10px; }
+  .progress-bar-bg {
+    width: 100%;
+    height: 5px;
+    background: #232834;
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--acc), #ff8466);
+    border-radius: 3px;
+    transition: width 1s linear;
+  }
+  .progress-times {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    color: var(--dim);
+    margin-top: 5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Бейдж речи ведущего / звонка */
+  .np-dj {
+    margin-top: 8px;
+    background: rgba(255, 92, 57, 0.08);
+    border-left: 3px solid var(--acc);
+    padding: 8px 12px;
+    border-radius: 0 8px 8px 0;
+    color: #ff9179;
+    font-size: 13px;
+    line-height: 1.45;
+    white-space: pre-line;
+  }
+
+  /* Действия админа на треке */
+  .admin-track-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px dashed var(--line);
+  }
+  .skip-btn {
+    background: #252b37;
+    color: #fff;
+    border: 1px solid #363e4f;
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: .15s;
+  }
+  .skip-btn:hover:not(:disabled) {
+    background: var(--acc);
+    border-color: var(--acc);
+    box-shadow: 0 2px 10px var(--acc-glow);
+  }
+  .skip-btn:disabled { opacity: 0.5; cursor: default; }
+  .dj-break-btn {
+    background: #252332;
+    color: #fca5a5;
+    border: 1px solid #4a3848;
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: .15s;
+  }
+  .dj-break-btn:hover:not(:disabled) {
+    background: #ff5c39;
+    border-color: #ff5c39;
+    color: #fff;
+    box-shadow: 0 2px 10px rgba(255, 92, 57, 0.4);
+  }
+  .dj-break-btn:disabled { opacity: 0.5; cursor: default; }
+
+  /* Следующий трек */
+  .up-next {
+    margin-top: 12px;
+    padding: 8px 12px;
+    background: var(--card-alt);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 12px;
+    color: var(--dim);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .up-next strong { color: var(--txt); font-weight: 600; }
+
+  /* Формы и кнопки */
+  input:not([type=range]), textarea, select {
+    width: 100%;
+    background: var(--card-alt);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--txt);
+    padding: 10px 12px;
+    font: inherit;
+    margin-bottom: 8px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input:focus, textarea:focus, select:focus {
+    outline: none;
+    border-color: var(--acc);
+    box-shadow: 0 0 0 2px var(--acc-glow);
+  }
+  textarea { resize: vertical; min-height: 70px; }
+  input::placeholder, textarea::placeholder { color: #616c7d; }
+  button {
+    background: var(--acc);
+    border: none;
+    color: #fff;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    cursor: pointer;
+    font: inherit;
+    transition: background .15s, transform .1s;
+  }
+  button:hover:not(:disabled) { background: var(--acc-hover); }
+  button:active:not(:disabled) { transform: scale(0.98); }
+  button:disabled { opacity: .55; cursor: default; }
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--dim);
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  button.ghost:hover:not(:disabled) { color: var(--txt); border-color: var(--dim); background: rgba(255,255,255,0.03); }
+  button.danger { background: rgba(231, 76, 60, 0.15); border: 1px solid rgba(231, 76, 60, 0.35); color: #ff7675; }
+  button.danger:hover:not(:disabled) { background: #e74c3c; color: #fff; }
+
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row > input, .row > textarea { flex: 1; width: auto; min-width: 0; margin-bottom: 0; }
+  .char-count { font-size: 11px; color: #626d7f; text-align: right; margin-top: -4px; margin-bottom: 8px; }
+
+  /* Переключатели switch */
+  .switch { display: flex; align-items: center; gap: 8px; }
+  button.toggle {
+    width: 42px; height: 22px; padding: 0;
+    border: none; border-radius: 12px;
+    background: #313845;
+    position: relative;
+    cursor: pointer;
+    transition: background .2s;
+    flex-shrink: 0;
+  }
+  button.toggle.on { background: var(--acc); }
+  button.toggle::after {
+    content: ''; position: absolute;
+    top: 3px; left: 3px;
+    width: 16px; height: 16px;
+    border-radius: 50%; background: #fff;
+    transition: left .2s;
+  }
+  button.toggle.on::after { left: 23px; }
+
+  /* Списки: темы, KB */
+  .items { max-height: 240px; overflow: auto; font-size: 13px; }
+  .items .it {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .items .it:last-child { border: none; }
+  .items .it > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .badge-tag {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: #252b37;
+    color: var(--dim);
+    margin-left: 4px;
+  }
+
+  /* Новости и RSS */
+  .news-list { max-height: 480px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .news-card {
+    background: var(--card-alt);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    transition: border-color .15s;
+  }
+  .news-card:hover { border-color: #3b4556; }
+  .news-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--dim);
+  }
+  .news-src {
+    font-weight: 600;
+    color: var(--acc);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .news-title-link {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--txt);
+    text-decoration: none;
+    line-height: 1.35;
+  }
+  .news-title-link:hover { color: var(--acc); text-decoration: underline; }
+  .news-desc {
+    font-size: 12px;
+    color: var(--dim);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+  .news-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 4px;
+    padding-top: 6px;
+    border-top: 1px dashed rgba(255,255,255,0.06);
+  }
+  .news-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .news-actions button {
+    padding: 4px 8px;
+    font-size: 11px;
+    border-radius: 6px;
+    font-weight: 500;
+  }
+  .feeds-panel {
+    background: #151820;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .feed-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--line);
+    font-size: 12px;
+  }
+  .feed-row:last-child { border-bottom: none; }
+  .feed-info { flex: 1; min-width: 0; }
+  .feed-name { font-weight: 600; color: var(--txt); }
+  .feed-url { color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* История треков */
+  ul.hist { list-style: none; font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+  ul.hist:empty::before { content: "пока пусто"; color: var(--dim); }
+  ul.hist li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
+    background: var(--card-alt);
+    border-radius: 6px;
+    overflow-wrap: anywhere;
+  }
+  .hist-time { font-size: 11px; color: var(--dim); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .hist-track { flex: 1; min-width: 0; }
+  .hist-artist { color: var(--dim); font-weight: 400; }
+
+  /* Настройки */
+  h3.set-h { font-size: 12px; text-transform: uppercase; color: var(--acc); letter-spacing: 1px; margin: 16px 0 10px; }
+  .set-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+  @media (max-width: 720px) { .set-grid { grid-template-columns: 1fr; } }
+  .set-f label { display: block; font-size: 12px; margin-bottom: 4px; color: var(--dim); }
+  .set-f select { width: 100%; margin-bottom: 0; }
+  .set-f input, .set-f textarea { margin-bottom: 0; }
+  .set-grid .set-f:has(textarea) { grid-column: 1 / -1; }
+  .set-f.bool {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; background: var(--card-alt); border: 1px solid var(--line);
+    border-radius: 8px; padding: 9px 12px;
+  }
+
+  /* Модальное окно входа */
+  #loginModal {
+    position: fixed; inset: 0;
+    background: rgba(6, 8, 11, 0.78);
+    backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; padding: 16px;
+  }
+  #loginModal .box { width: min(380px, 100%); margin: auto; }
+  .err { color: #ff6b6b; font-size: 13px; min-height: 18px; margin-bottom: 8px; }
+
+  /* Всплывающие уведомления (Toast) */
+  #toastBox {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 999;
+    pointer-events: none;
+  }
+  .toast {
+    background: #1e2430;
+    color: #fff;
+    border: 1px solid #364052;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.4);
+    opacity: 0;
+    transform: translateY(12px);
+    transition: opacity .2s, transform .2s;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.toast-success { border-color: var(--green); }
+  .toast.toast-error { border-color: var(--red); }
+
+  /* Стол заказов: выпадающий поиск */
+  .req-dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    right: 0;
+    background: var(--card);
+    border: 1px solid var(--line-light);
+    border-radius: 8px;
+    max-height: 190px;
+    overflow-y: auto;
+    z-index: 100;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  }
+  .req-item {
+    padding: 8px 12px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+  }
+  .req-item:hover {
+    background: var(--card-hover);
+    color: var(--acc);
+  }
+  .req-item:last-child { border-bottom: none; }
 </style>
 </head>
 <body>
-<div id="login" style="display:none">
+
+<!-- Всплывающие уведомления -->
+<div id="toastBox"></div>
+
+<!-- Модалка логина -->
+<div id="loginModal" style="display:none">
   <div class="box card">
-    <h1>📻 <span id="loginName">Радио</span></h1>
+    <div class="card-header">
+      <h2 style="font-size:16px; color:var(--txt);">📻 Вход в студию</h2>
+      <button type="button" class="ghost" id="loginCloseBtn" style="padding:2px 8px;">✕</button>
+    </div>
     <div class="err" id="loginErr"></div>
-    <input type="password" id="pwd" placeholder="пароль эфира">
-    <button id="loginBtn" style="width:100%">Войти</button>
-    <button type="button" class="ghost" id="loginClose">Закрыть</button>
+    <input type="password" id="pwd" placeholder="Пароль администратора" autocomplete="current-password">
+    <button id="loginSubmitBtn" style="width:100%; margin-top:4px;">Войти</button>
   </div>
 </div>
 
-<div class="wrap" id="app" style="display:none">
+<div class="wrap" id="app">
   <header>
-    <h1 id="radioName">Радио</h1>
-    <span class="live" id="liveBadge">LIVE</span>
-    <span class="muted" id="stats"></span>
-    <div class="switch admin-only">
-      <span class="muted">микрофон <span id="djName"></span></span>
-      <button type="button" class="toggle on" id="djToggle" title="вкл/выкл вставки ведущего"></button>
+    <div class="brand">
+      <h1 id="radioName">Радио Слом</h1>
+      <span class="live-badge" id="liveBadge"><span class="dot"></span>LIVE</span>
+      <span class="stats-pill" id="statsPill">mp3 · 192k</span>
+      <span class="stats-pill" id="weatherPill" style="display:none; align-items:center; gap:4px;">🌤 <span id="weatherText"></span></span>
     </div>
-    <span class="spacer"></span>
-    <button id="adminBtn" class="ghost">Войти</button>
+
+    <div class="header-actions">
+      <!-- Переключатель ведущего в админке -->
+      <div class="switch admin-only" title="Включение/отключение голосовых реплик ведущего">
+        <span style="font-size:12px; color:var(--dim)">🎙 <span id="djNameLabel">Ведущий</span></span>
+        <button type="button" class="toggle on" id="djToggle"></button>
+      </div>
+
+      <!-- Кнопка входа / выхода -->
+      <button id="adminLoginBtn" class="ghost guest-only">Войти</button>
+      <button id="adminLogoutBtn" class="ghost danger admin-only">Выйти</button>
+    </div>
   </header>
-  <div class="player">
-    <button class="play-btn" id="playBtn" title="плей/пауза">▶</button>
+
+  <!-- Плеер потока -->
+  <div class="player-bar">
+    <button class="play-btn" id="playBtn" title="Воспроизведение (Пробел)">▶</button>
     <canvas id="spectrum"></canvas>
-    <div class="vol">
-      <span class="muted" title="громкость">🔊</span>
-      <input type="range" id="vol" min="0" max="1" step="0.01" value="1">
+    <div class="vol-box">
+      <button class="mute-btn" id="muteBtn" title="Выключить/включить звук">🔊</button>
+      <input type="range" id="vol" min="0" max="1" step="0.01" value="1" title="Громкость">
     </div>
   </div>
   <audio id="stream" preload="none" src="/radio.mp3"></audio>
 
+  <!-- Верхняя сетка: В эфире + Звонок в студию -->
   <div class="grid">
+    <!-- Карточка "В эфире" -->
     <div class="card">
-      <h2>В эфире</h2>
-      <div class="np-title" id="npTitle">—</div>
-      <div class="np-artist" id="npArtist"></div>
-      <div class="np-dj admin-only" id="npDj"></div>
+      <div class="card-header">
+        <h2><span>📡 В эфире</span></h2>
+        <button class="copy-btn" id="copyTrackBtn" title="Скопировать название трека">📋 Копировать</button>
+      </div>
+      <div class="np-body">
+        <div class="np-title-row">
+          <div>
+            <div class="np-title" id="npTitle">Загрузка эфира…</div>
+            <div class="np-artist" id="npArtist"></div>
+          </div>
+        </div>
+
+        <!-- Прогресс-бар -->
+        <div class="progress-wrap" id="progressWrap">
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="progressFill"></div>
+          </div>
+          <div class="progress-times">
+            <span id="timeElapsed">00:00</span>
+            <span id="timeDuration">--:--</span>
+          </div>
+        </div>
+
+        <!-- Голос ведущего -->
+        <div class="np-dj" id="npDj" style="display:none"></div>
+
+        <!-- Панель управления треком для админа -->
+        <div class="admin-track-actions admin-only">
+          <button class="skip-btn" id="skipTrackBtn" title="Немедленно переключить на следующий трек">
+            <span>⏭</span> Пропустить трек
+          </button>
+          <button class="dj-break-btn" id="djBreakBtn" title="Ведущий скажет подводку прямо сейчас поверх музыки">
+            <span>🎙</span> Выход ведущего
+          </button>
+          <span style="font-size:12px; color:var(--dim)" id="skipStatusMsg"></span>
+        </div>
+
+        <!-- Превью следующего трека -->
+        <div class="up-next" id="upNextRow" style="display:none">
+          <span>Дальше:</span>
+          <strong id="upNextText">—</strong>
+        </div>
+      </div>
     </div>
-    <div class="card" id="callCard">
-      <h2>Звонок в студию</h2>
-      <input id="callName" placeholder="как вас зовут?">
-      <textarea id="callText" placeholder="что скажете ди-джею?"></textarea>
-      <div class="row"><button id="callBtn">Позвонить</button><span class="msg" id="callMsg"></span></div>
+
+    <!-- Карточка интерактива: Звонок / Стол заказов (доступна и слушателям, и админу) -->
+    <div class="card" id="interactiveCard">
+      <div class="card-header" style="margin-bottom: 12px;">
+        <div style="display: flex; gap: 6px;">
+          <button type="button" class="ghost" id="tabCallBtn" style="color: var(--txt); font-weight: 600; padding: 4px 10px; background: var(--card-alt); border-color: var(--line-light);">📞 Звонок в студию</button>
+          <button type="button" class="ghost" id="tabReqBtn" style="color: var(--dim); padding: 4px 10px;">🎵 Стол заказов</button>
+        </div>
+      </div>
+
+      <!-- Вкладка 1: Звонок в студию -->
+      <div id="interactiveCall">
+        <div class="row" style="margin-bottom: 8px;">
+          <input id="callName" placeholder="Как вас зовут?" maxlength="40" style="flex: 1.5; margin-bottom: 0;">
+          <select id="callGender" style="flex: 1; margin-bottom: 0;" title="Голос звонящего">
+            <option value="auto">Голос: Авто</option>
+            <option value="male">👨 Мужской</option>
+            <option value="female">👩 Женский</option>
+          </select>
+        </div>
+        <select id="callMood" style="margin-bottom: 8px;" title="Цель звонка">
+          <option value="chat">Цель: Свободная беседа</option>
+          <option value="debate">Цель: Поспорить / не согласиться</option>
+          <option value="question">Цель: Задать каверзный вопрос</option>
+          <option value="story">Цель: Рассказать забавную историю</option>
+          <option value="greeting">Цель: Передать привет / признаться в любви</option>
+        </select>
+        <textarea id="callText" placeholder="Что скажете ведущему? Вопрос, история, привет…" maxlength="500"></textarea>
+        <div class="char-count" id="callCharCount">0 / 500</div>
+        <div class="row">
+          <button id="callBtn">Позвонить в эфир</button>
+          <span style="font-size:12px; color:var(--dim)" id="callMsg"></span>
+        </div>
+      </div>
+
+      <!-- Вкладка 2: Стол заказов -->
+      <div id="interactiveReq" style="display: none;">
+        <div style="position: relative; margin-bottom: 8px;">
+          <input id="reqSearch" placeholder="🔍 Найти трек в медиатеке (название или артист)..." autocomplete="off" style="margin-bottom: 0;">
+          <div id="reqDropdown" class="req-dropdown" style="display: none;"></div>
+        </div>
+        <input type="hidden" id="reqTrackId">
+        <div id="reqSelectedTrack" style="display: none; padding: 6px 10px; margin-bottom: 8px; background: var(--card-alt); border: 1px solid var(--acc); border-radius: 6px; font-size: 12px; align-items: center; justify-content: space-between;">
+          <span>🎵 <strong id="reqSelectedTitle"></strong></span>
+          <button type="button" class="ghost" id="reqClearTrackBtn" style="padding: 1px 6px; font-size: 11px;">✕</button>
+        </div>
+        <div class="row" style="margin-bottom: 8px;">
+          <input id="reqName" placeholder="Ваше имя" maxlength="40" style="flex: 1; margin-bottom: 0;">
+          <input id="reqMessage" placeholder="Кому / поздравление / привет" maxlength="200" style="flex: 1.8; margin-bottom: 0;">
+        </div>
+        <div class="row">
+          <button id="reqBtn">Заказать трек</button>
+          <span style="font-size:12px; color:var(--dim)" id="reqMsg"></span>
+        </div>
+        <div id="reqRecentList" style="margin-top: 10px; font-size: 11px; color: var(--dim);"></div>
+      </div>
     </div>
   </div>
 
-  <div class="admin-only">
-  <div class="grid" style="margin-top:16px">
-    <div class="card">
-      <h2>Эфирная сетка</h2>
-      <input id="topicText" placeholder="тема для ведущего…">
-      <div class="row"><button id="topicBtn">В студию</button><span class="msg" id="topicMsg"></span></div>
-      <div class="items" id="topicList" style="margin-top:10px"></div>
+  <!-- Блоки только для администратора -->
+  <div class="admin-only" style="margin-top: 16px;">
+    <div class="grid">
+      <!-- Эфирная сетка / Темы -->
+      <div class="card">
+        <div class="card-header">
+          <h2><span>📋 Эфирная сетка</span></h2>
+        </div>
+        <input id="topicText" placeholder="Тема для монолога ведущего…" maxlength="500">
+        <div class="char-count" id="topicCharCount">0 / 500</div>
+        <div class="row">
+          <button id="topicBtn">В студию</button>
+          <span style="font-size:12px; color:var(--dim)" id="topicMsg"></span>
+        </div>
+        <div class="items" id="topicList" style="margin-top: 12px;"></div>
+      </div>
+
+      <!-- База знаний RAG -->
+      <div class="card">
+        <div class="card-header">
+          <h2><span>🧠 База знаний (RAG)</span></h2>
+        </div>
+        <input id="kbTitle" placeholder="Заголовок факта / темы" maxlength="100">
+        <textarea id="kbText" placeholder="Факты, приколы, инсайды студии, воспоминания…" style="min-height:54px"></textarea>
+        <div class="row">
+          <button id="kbBtn">Запомнить</button>
+          <span style="font-size:12px; color:var(--dim)" id="kbMsg"></span>
+        </div>
+        <div class="items" id="kbList" style="margin-top: 12px;"></div>
+      </div>
     </div>
 
-    <div class="card">
-      <h2>База знаний (RAG)</h2>
-      <input id="kbTitle" placeholder="заголовок">
-      <textarea id="kbText" placeholder="факты, байты, внутренние шутки студии…" style="min-height:52px"></textarea>
-      <div class="row"><button id="kbBtn">Запомнить</button><span class="msg" id="kbMsg"></span></div>
-      <div class="items" id="kbList" style="margin-top:10px"></div>
-    </div>
-  </div>
+    <!-- Блок новостей RSS -->
+    <div class="card" style="margin-top: 16px;">
+      <div class="card-header">
+        <h2><span>📰 Новости (RSS)</span></h2>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <button class="ghost" id="newsRefreshBtn" title="Опросить RSS фиды прямо сейчас">🔄 Обновить ленту</button>
+          <button class="ghost" id="newsBreakBtn" title="Сгенерировать выпуск новостей прямо сейчас поверх эфира" style="color: #ff9179; border-color: rgba(255,92,57,0.35);">🎙 Выпуск в эфир</button>
+          <button class="ghost" id="feedsToggleBtn" title="Управление источниками RSS">⚙️ Источники</button>
+        </div>
+      </div>
 
-  <div class="card" style="margin-top:16px">
-    <h2>Настройки эфира <span class="muted">— применяются сразу, без рестарта</span></h2>
-    <div id="settingsBody"><div class="muted">загрузка…</div></div>
-    <div class="row" style="margin-top:12px">
-      <button id="settingsSave">Сохранить</button>
-      <button id="settingsReset" class="ghost" style="color:var(--txt)">Сбросить к дефолтам</button>
-      <span class="msg" id="settingsMsg"></span>
-    </div>
-  </div>
+      <!-- Панель управления источниками RSS (скрыта по умолчанию) -->
+      <div id="feedsPanel" class="feeds-panel" style="display: none;">
+        <div style="font-weight: 600; font-size: 13px; color: var(--txt);">Управление RSS-источниками</div>
+        <div class="row">
+          <input id="newFeedName" placeholder="Название (например: Хабр)" style="flex: 1; margin-bottom: 0;">
+          <input id="newFeedUrl" placeholder="URL RSS/Atom фида (https://...)" style="flex: 2; margin-bottom: 0;">
+          <button id="addFeedBtn" style="white-space: nowrap;">+ Добавить</button>
+        </div>
+        <div id="feedsList" style="margin-top: 6px;"></div>
+      </div>
 
-  <div class="card" style="margin-top:16px">
-    <h2>История эфира</h2>
-    <ul class="hist" id="hist"></ul>
-  </div>
+      <!-- Фильтр / статус -->
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px; font-size: 12px; color: var(--dim);">
+        <span id="newsStatusText">Загрузка новостей…</span>
+        <div style="display: flex; gap: 6px;">
+          <button class="ghost" id="newsFilterAll" style="padding: 2px 8px; font-size: 11px;">Все</button>
+          <button class="ghost" id="newsFilterPending" style="padding: 2px 8px; font-size: 11px; color: var(--green);">Свежие</button>
+        </div>
+      </div>
+
+      <!-- Список новостей -->
+      <div class="news-list" id="newsList"></div>
+    </div>
+
+    <!-- Настройки эфира -->
+    <div class="card" style="margin-top: 16px;">
+      <div class="card-header">
+        <h2><span>⚙️ Настройки эфира</span> <span style="font-weight:400; text-transform:none; color:var(--dim)">— применяются сразу</span></h2>
+      </div>
+      <div id="settingsBody"><div style="color:var(--dim)">Загрузка настроек…</div></div>
+      <div class="row" style="margin-top: 16px;">
+        <button id="settingsSave">Сохранить изменения</button>
+        <button id="settingsReset" class="ghost">Сбросить к дефолтам</button>
+        <span style="font-size:12px; color:var(--dim)" id="settingsMsg"></span>
+      </div>
+    </div>
+
+    <!-- История эфира -->
+    <div class="card" style="margin-top: 16px;">
+      <div class="card-header">
+        <h2><span>📜 Недавно играло</span></h2>
+      </div>
+      <ul class="hist" id="hist"></ul>
+    </div>
   </div>
 </div>
 
 <script>
 let authed = false;
+let currentTrack = null;
+let trackDuration = 0;
+let trackElapsed = 0;
+let progressTicker = null;
+let lastVolume = 1;
+
 const $ = (id) => document.getElementById(id);
+const esc = (s) => (s || '').replace(/[<>&"]/g, (c) => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+
+function toast(msg, type = 'info') {
+  const box = $('toastBox');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.textContent = msg;
+  box.appendChild(el);
+  setTimeout(() => el.classList.add('show'), 10);
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 250);
+  }, 3200);
+}
+
 const api = async (path, opts = {}) => {
-  const r = await fetch(path, { headers: {'Content-Type':'application/json'}, ...opts });
-  if (r.status === 401) { showLogin(true); throw new Error('unauth'); }
+  const r = await fetch(path, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  if (r.status === 401) {
+    if (authed) { setAuthed(false); toast('Сессия истекла', 'error'); }
+    throw new Error('unauth');
+  }
   return r.json();
 };
-const esc = (s) => (s || '').replace(/[<>&"]/g, (c) => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
 
 function setAuthed(on) {
   authed = on;
   document.body.classList.toggle('authed', on);
-  $('app').style.display = 'block';
-  $('adminBtn').textContent = 'Войти';
+  if (on) {
+    bootAdmin();
+  }
 }
-function showLogin(show) {
-  $('login').style.display = show ? 'flex' : 'none';
-  $('app').style.display = 'block';
-  document.body.style.overflow = show ? 'hidden' : '';
+
+function showLoginModal(show) {
+  $('loginModal').style.display = show ? 'flex' : 'none';
+  $('loginErr').textContent = '';
   if (show) setTimeout(() => $('pwd').focus(), 50);
-  else $('adminBtn').focus();
 }
 
-async function login() {
-  const r = await fetch('/api/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ password: $('pwd').value }) });
-  if (r.ok) { showLogin(false); setAuthed(true); boot(); }
-  else $('loginErr').textContent = (await r.json()).error || 'ошибка';
+// Вход в админку
+async function doLogin() {
+  const pwd = $('pwd').value;
+  if (!pwd) return;
+  $('loginSubmitBtn').disabled = true;
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: pwd })
+    });
+    const j = await r.json();
+    if (r.ok && j.ok) {
+      showLoginModal(false);
+      setAuthed(true);
+      $('pwd').value = '';
+      toast('Вход выполнен', 'success');
+    } else {
+      $('loginErr').textContent = j.error || 'Неверный пароль';
+    }
+  } catch (e) {
+    $('loginErr').textContent = 'Ошибка сети';
+  } finally {
+    $('loginSubmitBtn').disabled = false;
+  }
 }
-$('loginBtn').onclick = login;
-$('adminBtn').onclick = () => showLogin(true);
-$('login').onclick = (e) => { if (e.target === $('login')) showLogin(false); };
-$('loginClose').onclick = () => showLogin(false);
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') showLogin(false); });
-$('pwd').addEventListener('keydown', (e) => e.key === 'Enter' && login());
 
-async function boot() {
-  const st = await api('/api/state');
-  $('radioName').textContent = st.radioName;
-  $('loginName').textContent = st.radioName;
-  $('djName').textContent = st.djName;
-  $('djToggle').classList.toggle('on', st.program.djEnabled);
+// Выход из админки
+async function doLogout() {
+  try {
+    await fetch('/api/logout', { method: 'POST' });
+    setAuthed(false);
+    toast('Вы вышли из админки');
+    refreshPublic();
+  } catch (e) {
+    setAuthed(false);
+  }
+}
+
+$('adminLoginBtn').onclick = () => showLoginModal(true);
+$('adminLogoutBtn').onclick = doLogout;
+$('loginCloseBtn').onclick = () => showLoginModal(false);
+$('loginSubmitBtn').onclick = doLogin;
+$('pwd').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+$('loginModal').onclick = (e) => { if (e.target === $('loginModal')) showLoginModal(false); };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') showLoginModal(false); });
+
+// Форматирование секунд в ММ:СС
+function formatSec(s) {
+  if (s == null || isNaN(s) || s < 0) return '--:--';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+}
+
+// Обновление прогресс-бара
+function updateProgress(elapsed, duration) {
+  trackElapsed = elapsed;
+  trackDuration = duration;
+  if (duration && duration > 0) {
+    const pct = Math.min(100, Math.max(0, (elapsed / duration) * 100));
+    $('progressFill').style.width = `${pct.toFixed(1)}%`;
+    $('timeElapsed').textContent = formatSec(elapsed);
+    $('timeDuration').textContent = formatSec(duration);
+    $('progressWrap').style.display = 'block';
+  } else {
+    $('progressFill').style.width = '0%';
+    $('timeElapsed').textContent = formatSec(elapsed);
+    $('timeDuration').textContent = '--:--';
+  }
+}
+
+// Локальный тикер прогресса каждую секунду
+if (progressTicker) clearInterval(progressTicker);
+progressTicker = setInterval(() => {
+  if (trackDuration > 0 && trackElapsed < trackDuration) {
+    trackElapsed += 1;
+    const pct = Math.min(100, Math.max(0, (trackElapsed / trackDuration) * 100));
+    $('progressFill').style.width = `${pct.toFixed(1)}%`;
+    $('timeElapsed').textContent = formatSec(trackElapsed);
+  }
+}, 1000);
+
+// Копирование названия текущего трека
+$('copyTrackBtn').onclick = () => {
+  if (!currentTrack) return;
+  const str = currentTrack.artist ? `${currentTrack.artist} — ${currentTrack.title}` : currentTrack.title;
+  if (!str) return;
+  navigator.clipboard.writeText(str).then(() => {
+    toast(`Скопировано: «${str}»`, 'success');
+  }).catch(() => {
+    toast('Не удалось скопировать', 'error');
+  });
+};
+
+// Пропуск трека админом
+$('skipTrackBtn').onclick = async () => {
+  const btn = $('skipTrackBtn');
+  btn.disabled = true;
+  $('skipStatusMsg').textContent = 'Переключаем…';
+  try {
+    const r = await api('/api/skip', { method: 'POST' });
+    if (r.ok) {
+      toast('Трек пропущен', 'success');
+      $('skipStatusMsg').textContent = 'Пропущено ✓';
+      setTimeout(() => { $('skipStatusMsg').textContent = ''; }, 2000);
+      await refreshAdmin();
+    } else {
+      toast(r.error || 'Ошибка пропуска', 'error');
+      $('skipStatusMsg').textContent = '';
+    }
+  } catch (e) {
+    toast('Ошибка соединения со студией', 'error');
+    $('skipStatusMsg').textContent = '';
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+// Выход ведущего по требованию (админ)
+$('djBreakBtn').onclick = async () => {
+  const btn = $('djBreakBtn');
+  btn.disabled = true;
+  $('skipStatusMsg').textContent = 'Ведущий готовит выход…';
+  try {
+    const r = await api('/api/dj/break', { method: 'POST', body: JSON.stringify({}) });
+    if (r.ok) {
+      toast('Ведущий заговорил в эфире!', 'success');
+      $('skipStatusMsg').textContent = 'В эфире ✓';
+      setTimeout(() => { $('skipStatusMsg').textContent = ''; }, 3000);
+      await refreshAdmin();
+    } else {
+      toast(r.error || 'Ошибка выхода ведущего', 'error');
+      $('skipStatusMsg').textContent = '';
+    }
+  } catch (e) {
+    toast('Ошибка связи со студией', 'error');
+    $('skipStatusMsg').textContent = '';
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+// Загрузка админки
+async function bootAdmin() {
   loadSettings();
-  refresh();  setInterval(refresh, 5000);
+  await refreshAdmin();
+  refreshLists();
+  loadNews();
 }
 
-async function refresh() {
+async function refreshAdmin() {
   try {
     const st = await api('/api/state');
-    const np = st.nowPlaying;
-    $('npTitle').textContent = np ? (np.title || '—') : 'тишина';
-    $('npArtist').textContent = np && np.artist ? np.artist : '';
-    $('npDj').textContent = np && np.isInsert && np.insertText ? `🎙 ${np.insertText}` : '';
-    $('liveBadge').classList.toggle('off', !st.mixer.online);
-    $('liveBadge').textContent = st.mixer.online ? 'LIVE' : 'OFF';
-    $('stats').textContent = `${st.mixer.format} · треков: ${st.tracks}`;
-    $('hist').innerHTML = (st.history || []).map((h) =>
-      `<li>${new Date(h.played_at).toLocaleTimeString('ru-RU',{hour:'2-digit',minute:'2-digit'})} — ${esc(h.artist||'?')} — ${esc(h.title||'?')}</li>`).join('');
-    $('djToggle').classList.toggle('on', st.program.djEnabled);
-  } catch (e) { /* unauth уже обработан */ }
-  refreshLists();
+    renderState(st);
+  } catch (e) { /* обработано */ }
 }
 
+async function refreshPublic() {
+  if (authed) return;
+  try {
+    const st = await fetch('/api/now').then((r) => r.json());
+    $('radioName').textContent = st.radioName || 'Радио Слом';
+    $('liveBadge').classList.toggle('off', !st.live);
+    $('liveBadge').innerHTML = st.live ? '<span class="dot"></span>LIVE' : 'OFF';
+
+    if (st.weather && st.weather.text) {
+      $('weatherPill').style.display = 'inline-flex';
+      $('weatherText').textContent = `${st.weather.city} ${st.weather.temp > 0 ? '+' : ''}${st.weather.temp}°C, ${st.weather.cond}`;
+      $('weatherPill').title = st.weather.text;
+    } else {
+      $('weatherPill').style.display = 'none';
+    }
+
+    const np = st.nowPlaying;
+    currentTrack = np;
+    if (np && (np.title || np.artist)) {
+      $('npTitle').textContent = np.title || '—';
+      $('npArtist').textContent = np.artist || '';
+      if (np.playedSec != null && np.duration) {
+        updateProgress(np.playedSec, np.duration);
+      }
+    } else {
+      $('npTitle').textContent = 'Эфир молчит';
+      $('npArtist').textContent = '';
+      updateProgress(0, 0);
+    }
+
+    if (st.nextTrack && st.nextTrack.title) {
+      $('upNextRow').style.display = 'flex';
+      $('upNextText').textContent = st.nextTrack.artist ? `${st.nextTrack.artist} — ${st.nextTrack.title}` : st.nextTrack.title;
+    } else {
+      $('upNextRow').style.display = 'none';
+    }
+  } catch (e) { /* сеть */ }
+}
+
+function renderState(st) {
+  $('radioName').textContent = st.radioName || 'Радио Слом';
+  $('liveBadge').classList.toggle('off', !(st.mixer && st.mixer.online));
+  $('liveBadge').innerHTML = (st.mixer && st.mixer.online) ? '<span class="dot"></span>LIVE' : 'OFF';
+  $('statsPill').textContent = `${st.mixer?.format || 'mp3'} · треков: ${st.tracks ?? 0}`;
+
+  if (st.weather && st.weather.text) {
+    $('weatherPill').style.display = 'inline-flex';
+    $('weatherText').textContent = `${st.weather.city} ${st.weather.temp > 0 ? '+' : ''}${st.weather.temp}°C, ${st.weather.cond}`;
+    $('weatherPill').title = st.weather.text;
+  } else {
+    $('weatherPill').style.display = 'none';
+  }
+
+  $('djNameLabel').textContent = st.djName || 'Ведущий';
+  $('djToggle').classList.toggle('on', Boolean(st.program?.djEnabled));
+
+  const np = st.nowPlaying;
+  currentTrack = np;
+  if (np && (np.title || np.artist)) {
+    $('npTitle').textContent = np.title || '—';
+    $('npArtist').textContent = np.artist || '';
+    if (np.isInsert && np.insertText) {
+      $('npDj').style.display = 'block';
+      $('npDj').textContent = `🎙 ${np.insertText}`;
+    } else {
+      $('npDj').style.display = 'none';
+      $('npDj').textContent = '';
+    }
+    if (np.playedSec != null && np.duration) {
+      updateProgress(np.playedSec, np.duration);
+    }
+  } else {
+    $('npTitle').textContent = 'Эфир молчит';
+    $('npArtist').textContent = '';
+    $('npDj').style.display = 'none';
+    updateProgress(0, 0);
+  }
+
+  // Следующий трек
+  if (st.nextTrack && st.nextTrack.title) {
+    $('upNextRow').style.display = 'flex';
+    $('upNextText').textContent = st.nextTrack.artist ? `${st.nextTrack.artist} — ${st.nextTrack.title}` : st.nextTrack.title;
+  } else {
+    $('upNextRow').style.display = 'none';
+  }
+
+  // История
+  $('hist').innerHTML = (st.history || []).map((h) => {
+    const timeStr = new Date(h.played_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    const art = h.artist ? `<span class="hist-artist">${esc(h.artist)}</span> — ` : '';
+    return `<li><span class="hist-time">${timeStr}</span><div class="hist-track">${art}${esc(h.title || '?')}</div></li>`;
+  }).join('');
+}
+
+// Списки тем и базы знаний
 async function refreshLists() {
   if (!authed) return;
-  const t = await api('/api/topics');
-  $('topicList').innerHTML = t.items.length ? '' : '<div class="muted">тем нет — ведущий сам придумает</div>';
-  for (const it of t.items) {
-    $('topicList').insertAdjacentHTML('beforeend',
-      `<div class="it"><span>${esc(it.text)} ${it.status==='used'?'<span class="muted">· сыграли</span>':''}</span>
-       <button class="ghost" onclick="delTopic(${it.id})">✕</button></div>`);
-  }
-  const k = await api('/api/kb');
-  $('kbList').innerHTML = k.items.length ? '' : '<div class="muted">пусто — добавьте факты для ведущего</div>';
-  for (const it of k.items) {
-    $('kbList').insertAdjacentHTML('beforeend',
-      `<div class="it"><span>${esc(it.title)} <span class="muted">· ${it.chunks} чанк. ${it.embedded?'':'· ждёт эмбеддинг'}</span></span>
-       <button class="ghost" onclick="delKb('${encodeURIComponent(it.title)}')">✕</button></div>`);
-  }
+  try {
+    const [t, k] = await Promise.all([api('/api/topics'), api('/api/kb')]);
+    $('topicList').innerHTML = t.items.length ? '' : '<div style="color:var(--dim); padding:6px 0;">Тем нет — ведущий генерирует на свой вкус</div>';
+    for (const it of t.items) {
+      const usedChip = it.status === 'used' ? '<span class="badge-tag">сыграли</span>' : '<span class="badge-tag" style="color:var(--green)">в очереди</span>';
+      $('topicList').insertAdjacentHTML('beforeend',
+        `<div class="it"><span>${esc(it.text)} ${usedChip}</span>
+         <button class="ghost" onclick="delTopic(${it.id})" title="Удалить">✕</button></div>`);
+    }
+
+    $('kbList').innerHTML = k.items.length ? '' : '<div style="color:var(--dim); padding:6px 0;">База знаний пуста — добавьте факты для ведущего</div>';
+    for (const it of k.items) {
+      const waitChip = it.embedded ? '' : '<span class="badge-tag">ждёт эмбеддинг</span>';
+      $('kbList').insertAdjacentHTML('beforeend',
+        `<div class="it"><span><strong>${esc(it.title)}</strong> <span class="badge-tag">${it.chunks} чанк.</span> ${waitChip}</span>
+         <button class="ghost" onclick="delKb('${encodeURIComponent(it.title)}')" title="Удалить">✕</button></div>`);
+    }
+  } catch (e) { /* unauth */ }
 }
 
-window.delTopic = async (id) => { await api('/api/topics/' + id, { method:'DELETE' }); refreshLists(); };
-window.delKb = async (title) => { await api('/api/kb/' + title, { method:'DELETE' }); refreshLists(); };
-
-// ---------- плеер: плей / спектр / громкость ----------
-const stream = $('stream');
-const playBtn = $('playBtn');
-const spec = $('spectrum');
-let actx = null, analyser = null, rafId = null;
-
-$('vol').value = localStorage.getItem('radioVol') ?? 1;
-stream.volume = Number($('vol').value) || 1;
-$('vol').oninput = (e) => {
-  stream.volume = Number(e.target.value);
-  localStorage.setItem('radioVol', e.target.value);
+window.delTopic = async (id) => {
+  await api('/api/topics/' + id, { method: 'DELETE' });
+  toast('Тема удалена');
+  refreshLists();
+};
+window.delKb = async (title) => {
+  await api('/api/kb/' + title, { method: 'DELETE' });
+  toast('Запись удалена из базы знаний');
+  refreshLists();
 };
 
-playBtn.onclick = () => {
-  if (!stream.paused) {
-    stream.pause();
-    playBtn.textContent = '▶';
-    if (rafId) cancelAnimationFrame(rafId);
-    rafId = null;
-    spec.getContext('2d').clearRect(0, 0, spec.width, spec.height);
+// ----------------- Новости и RSS -----------------
+let newsFilter = null; // null = все, 'pending' = свежие
+
+async function loadNews(filter = newsFilter) {
+  newsFilter = filter;
+  if (!authed) return;
+  try {
+    const r = await api('/api/news');
+    renderFeeds(r.feeds || []);
+    renderNews(r.items || []);
+  } catch (e) { /* unauth */ }
+}
+
+function renderFeeds(feeds) {
+  const container = $('feedsList');
+  if (!container) return;
+  if (!feeds.length) {
+    container.innerHTML = '<div style="color:var(--dim); font-size:12px; padding:6px 0;">Источников нет</div>';
     return;
   }
-  if (!actx) {
-    actx = new (window.AudioContext || window.webkitAudioContext)();
-    const src = actx.createMediaElementSource(stream);
-    analyser = actx.createAnalyser();
-    analyser.fftSize = 256;
-    analyser.smoothingTimeConstant = 0.8;
-    src.connect(analyser);
-    analyser.connect(actx.destination);
-  }
-  actx.resume();
-  stream.play().catch(() => { playBtn.textContent = '▶'; });
-  playBtn.textContent = '⏸';
-  drawSpectrum();
-};
-
-function drawSpectrum() {
-  rafId = requestAnimationFrame(drawSpectrum);
-  spec.width = Math.max(1, spec.clientWidth * (window.devicePixelRatio || 1));
-  spec.height = Math.max(1, spec.clientHeight * (window.devicePixelRatio || 1));
-  const g = spec.getContext('2d');
-  g.clearRect(0, 0, spec.width, spec.height);
-  if (!analyser) return;
-  const bins = new Uint8Array(analyser.frequencyBinCount);
-  analyser.getByteFrequencyData(bins);
-  const N = 56;
-  const bw = spec.width / N;
-  for (let i = 0; i < N; i++) {
-    const v = bins[i + 2] / 255;
-    const h = Math.max(2, v * spec.height * 0.92);
-    g.fillStyle = `rgba(255,92,57,${(0.3 + v * 0.7).toFixed(2)})`;
-    g.fillRect(i * bw + bw * 0.18, spec.height - h, bw * 0.64, h);
-  }
+  container.innerHTML = feeds.map((f) => {
+    const statusDot = f.last_status === 'ok'
+      ? '<span style="color:var(--green)">●</span>'
+      : f.last_status === 'error'
+      ? `<span style="color:#ff6b6b" title="${esc(f.error)}">●</span>`
+      : '<span style="color:var(--dim)">●</span>';
+    const lastTime = f.last_fetched_at
+      ? new Date(f.last_fetched_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })
+      : 'ещё не опрашивался';
+    return `
+      <div class="feed-row">
+        <div class="feed-info">
+          <div class="feed-name">${statusDot} ${esc(f.name)} <span class="badge-tag">${f.pending_news || 0} свежих</span></div>
+          <div class="feed-url" title="${esc(f.url)}">${esc(f.url)} · ${lastTime}</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px;">
+          <button type="button" class="toggle ${f.enabled ? 'on' : ''}" onclick="toggleFeed(${f.id}, this)" title="Вкл/Выкл"></button>
+          <button class="ghost" onclick="delFeed(${f.id})" title="Удалить источник">✕</button>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
-$('topicBtn').onclick = async () => {
-  const r = await api('/api/topics', { method:'POST', body: JSON.stringify({ text: $('topicText').value }) });
-  $('topicMsg').textContent = r.ok ? 'тема в очереди ✓' : r.error;
-  if (r.ok) $('topicText').value = '';
-  refreshLists();
-};
-$('callBtn').onclick = async () => {
-  $('callBtn').disabled = true; $('callMsg').textContent = 'соединяю со студией…';
+function renderNews(items) {
+  const container = $('newsList');
+  if (!container) return;
+  let filtered = items;
+  if (newsFilter === 'pending') {
+    filtered = items.filter((it) => it.status === 'pending');
+  }
+
+  const pendingCount = items.filter((it) => it.status === 'pending').length;
+  $('newsStatusText').textContent = `Всего ${items.length} новостей · ${pendingCount} свежих для эфира`;
+  $('newsFilterAll').style.background = newsFilter === null ? 'var(--line)' : 'transparent';
+  $('newsFilterPending').style.background = newsFilter === 'pending' ? 'var(--line)' : 'transparent';
+
+  if (!filtered.length) {
+    container.innerHTML = '<div style="color:var(--dim); font-size:13px; padding:16px; text-align:center;">Новостей пока нет — нажмите «Обновить ленту»</div>';
+    return;
+  }
+
+  container.innerHTML = filtered.map((it) => {
+    let chip = '';
+    if (it.status === 'pending') chip = '<span class="badge-tag" style="color:var(--green)">свежая</span>';
+    else if (it.status === 'queued') chip = '<span class="badge-tag" style="color:#70a1ff">в очереди</span>';
+    else if (it.status === 'used') chip = '<span class="badge-tag">в эфире</span>';
+    else chip = '<span class="badge-tag">архив</span>';
+
+    const timeStr = it.pub_date ? new Date(it.pub_date).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }) : '';
+    const src = it.feed_name ? `<span class="news-src">📡 ${esc(it.feed_name)}</span>` : '';
+    const link = it.link ? `<a class="news-title-link" href="${esc(it.link)}" target="_blank" rel="noopener">${esc(it.title)}</a>` : `<span class="news-title-link">${esc(it.title)}</span>`;
+
+    return `
+      <div class="news-card">
+        <div class="news-meta">
+          <div>${src} <span style="margin-left:6px">${timeStr}</span></div>
+          <div>${chip}</div>
+        </div>
+        ${link}
+        ${it.summary ? `<div class="news-desc">${esc(it.summary)}</div>` : ''}
+        <div class="news-foot">
+          <div class="news-actions">
+            <button class="ghost" onclick="queueNews(${it.id})" title="Добавить в темы ведущего">+ В темы</button>
+            <button class="ghost" onclick="speakNews(${it.id})" title="Немедленно зачитать эту новость в эфире" style="color:#ff9179; border-color:rgba(255,92,57,0.3)">🎙 В эфир</button>
+            <button class="ghost" onclick="dismissNews(${it.id})" title="Скрыть новость">✕</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+$('newsFilterAll').onclick = () => loadNews(null);
+$('newsFilterPending').onclick = () => loadNews('pending');
+
+$('newsRefreshBtn').onclick = async () => {
+  const btn = $('newsRefreshBtn');
+  btn.disabled = true;
+  btn.textContent = 'Опрашиваем…';
   try {
-    const r = await api('/api/calls', { method:'POST', body: JSON.stringify({ name: $('callName').value, text: $('callText').value }) });
-    $('callMsg').textContent = r.ok ? 'примут в эфир после текущего трека ✓' : (r.error || 'не вышло');
-    if (r.ok) { $('callText').value = ''; }
-  } catch { $('callMsg').textContent = 'ошибка'; }
-  $('callBtn').disabled = false;
-};
-$('kbBtn').onclick = async () => {
-  const r = await api('/api/kb', { method:'POST', body: JSON.stringify({ title: $('kbTitle').value, text: $('kbText').value }) });
-  $('kbMsg').textContent = r.ok ? `запомнил (${r.chunks} чанк.) ✓` : r.error;
-  if (r.ok) { $('kbTitle').value = ''; $('kbText').value = ''; }
-  refreshLists();
-};
-$('djToggle').onclick = async () => {
-  const on = !$('djToggle').classList.contains('on');
-  await api('/api/dj', { method:'POST', body: JSON.stringify({ enabled: on }) });
-  $('djToggle').classList.toggle('on', on);
+    const r = await api('/api/news/refresh', { method: 'POST' });
+    toast(`Лента обновлена (+${r.stats?.newCount || 0} новостей)`, 'success');
+    await loadNews();
+  } catch {
+    toast('Ошибка опроса RSS-фидов', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔄 Обновить ленту';
+  }
 };
 
-// ---------- настройки эфира ----------
+$('newsBreakBtn').onclick = async () => {
+  const btn = $('newsBreakBtn');
+  btn.disabled = true;
+  toast('Ведущий готовит выпуск новостей…');
+  try {
+    const r = await api('/api/news/break', { method: 'POST', body: JSON.stringify({}) });
+    if (r.ok) {
+      toast('Выпуск новостей пошёл в эфир!', 'success');
+      await refreshAdmin();
+      await loadNews();
+    } else {
+      toast(r.error || 'Ошибка генерации новостей', 'error');
+    }
+  } catch {
+    toast('Ошибка связи со студией', 'error');
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+$('feedsToggleBtn').onclick = () => {
+  const p = $('feedsPanel');
+  p.style.display = p.style.display === 'none' ? 'flex' : 'none';
+};
+
+$('addFeedBtn').onclick = async () => {
+  const name = $('newFeedName').value.trim();
+  const url = $('newFeedUrl').value.trim();
+  if (!url) { toast('Укажите URL RSS-фида', 'error'); return; }
+  try {
+    const r = await api('/api/rss/feeds', { method: 'POST', body: JSON.stringify({ name, url }) });
+    if (r.ok) {
+      $('newFeedName').value = '';
+      $('newFeedUrl').value = '';
+      toast('Источник добавлен и опрашивается', 'success');
+      await loadNews();
+    } else {
+      toast(r.error || 'Ошибка добавления', 'error');
+    }
+  } catch (e) {
+    toast('Ошибка добавления источника', 'error');
+  }
+};
+
+window.toggleFeed = async (id, el) => {
+  const on = !el.classList.contains('on');
+  el.classList.toggle('on', on);
+  await api(`/api/rss/feeds/${id}/toggle`, { method: 'POST', body: JSON.stringify({ enabled: on }) });
+  toast(on ? 'Источник включён' : 'Источник на паузе');
+};
+
+window.delFeed = async (id) => {
+  if (!confirm('Удалить источник и его новости?')) return;
+  await api(`/api/rss/feeds/${id}`, { method: 'DELETE' });
+  toast('Источник удалён');
+  await loadNews();
+};
+
+window.queueNews = async (id) => {
+  try {
+    const r = await api(`/api/news/${id}/queue`, { method: 'POST' });
+    if (r.ok) {
+      toast('Новость отправлена в темы ведущего', 'success');
+      refreshLists();
+      loadNews();
+    } else {
+      toast(r.error || 'Ошибка', 'error');
+    }
+  } catch { toast('Ошибка связи', 'error'); }
+};
+
+window.speakNews = async (id) => {
+  toast('Ведущий готовит реплику по новости…');
+  try {
+    const r = await api('/api/news/break', { method: 'POST', body: JSON.stringify({ newsId: id }) });
+    if (r.ok) {
+      toast('Новость в эфире!', 'success');
+      await refreshAdmin();
+      await loadNews();
+    } else {
+      toast(r.error || 'Ошибка', 'error');
+    }
+  } catch { toast('Ошибка связи', 'error'); }
+};
+
+window.dismissNews = async (id) => {
+  await api(`/api/news/${id}/dismiss`, { method: 'POST' });
+  loadNews();
+};
+
+// Звонок в студию
+const callTextEl = $('callText');
+callTextEl.oninput = () => { $('callCharCount').textContent = `${callTextEl.value.length} / 500`; };
+$('callBtn').onclick = async () => {
+  const name = $('callName').value.trim();
+  const text = callTextEl.value.trim();
+  const gender = $('callGender') ? $('callGender').value : 'auto';
+  const mood = $('callMood') ? $('callMood').value : 'chat';
+  if (!text) { toast('Напишите сообщение ведущему', 'error'); return; }
+  const btn = $('callBtn');
+  btn.disabled = true;
+  $('callMsg').textContent = 'Соединяем со студией…';
+  try {
+    const r = await api('/api/calls', { method: 'POST', body: JSON.stringify({ name, text, gender, mood }) });
+    if (r.ok) {
+      toast('Звонок принят в студию!', 'success');
+      $('callMsg').textContent = 'Примут в эфир после текущего трека ✓';
+      callTextEl.value = '';
+      $('callCharCount').textContent = '0 / 500';
+    } else {
+      $('callMsg').textContent = r.error || 'Ошибка';
+      toast(r.error || 'Не удалось дозвониться', 'error');
+    }
+  } catch (e) {
+    $('callMsg').textContent = 'Ошибка сети';
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+// Переключение вкладок Интерактива: Звонок / Заказ трека
+function switchInteractiveTab(tab) {
+  const isCall = tab === 'call';
+  $('interactiveCall').style.display = isCall ? 'block' : 'none';
+  $('interactiveReq').style.display = isCall ? 'none' : 'block';
+  $('tabCallBtn').style.color = isCall ? 'var(--txt)' : 'var(--dim)';
+  $('tabCallBtn').style.fontWeight = isCall ? '600' : 'normal';
+  $('tabCallBtn').style.background = isCall ? 'var(--card-alt)' : 'transparent';
+  $('tabCallBtn').style.borderColor = isCall ? 'var(--line-light)' : 'transparent';
+  $('tabReqBtn').style.color = !isCall ? 'var(--txt)' : 'var(--dim)';
+  $('tabReqBtn').style.fontWeight = !isCall ? '600' : 'normal';
+  $('tabReqBtn').style.background = !isCall ? 'var(--card-alt)' : 'transparent';
+  $('tabReqBtn').style.borderColor = !isCall ? 'var(--line-light)' : 'transparent';
+  if (!isCall) loadRecentRequests();
+}
+$('tabCallBtn').onclick = () => switchInteractiveTab('call');
+$('tabReqBtn').onclick = () => switchInteractiveTab('req');
+
+// Стол заказов: поиск треков
+let searchDebounce = null;
+const reqSearchEl = $('reqSearch');
+const reqDropdownEl = $('reqDropdown');
+const reqTrackIdEl = $('reqTrackId');
+const reqSelectedTrackEl = $('reqSelectedTrack');
+const reqSelectedTitleEl = $('reqSelectedTitle');
+
+reqSearchEl.oninput = () => {
+  clearTimeout(searchDebounce);
+  const q = reqSearchEl.value.trim();
+  if (q.length < 2) {
+    reqDropdownEl.style.display = 'none';
+    reqDropdownEl.innerHTML = '';
+    return;
+  }
+  searchDebounce = setTimeout(async () => {
+    try {
+      const data = await api(`/api/tracks/search?q=${encodeURIComponent(q)}`);
+      const tracks = data.items || [];
+      if (!tracks.length) {
+        reqDropdownEl.innerHTML = '<div style="padding:8px 12px; font-size:12px; color:var(--dim)">Ничего не найдено</div>';
+        reqDropdownEl.style.display = 'block';
+        return;
+      }
+      reqDropdownEl.innerHTML = tracks.map((t) => `
+        <div class="req-item" onclick="selectReqTrack(${t.id}, '${escapeHtml((t.artist ? t.artist + ' — ' : '') + t.title)}')">
+          <div>
+            <strong>${escapeHtml(t.artist || 'Неизвестный')}</strong> — ${escapeHtml(t.title || '')}
+          </div>
+          <span style="color:var(--dim); font-size:11px;">${formatSec(t.duration)}</span>
+        </div>
+      `).join('');
+      reqDropdownEl.style.display = 'block';
+    } catch { /* игнор */ }
+  }, 250);
+};
+
+window.selectReqTrack = (id, label) => {
+  reqTrackIdEl.value = id;
+  reqSelectedTitleEl.textContent = label;
+  reqSelectedTrackEl.style.display = 'flex';
+  reqDropdownEl.style.display = 'none';
+  reqSearchEl.value = '';
+};
+
+$('reqClearTrackBtn').onclick = () => {
+  reqTrackIdEl.value = '';
+  reqSelectedTitleEl.textContent = '';
+  reqSelectedTrackEl.style.display = 'none';
+};
+
+// Заказ трека
+$('reqBtn').onclick = async () => {
+  const trackId = reqTrackIdEl.value;
+  if (!trackId) { toast('Выберите трек из списка', 'error'); return; }
+  const userName = $('reqName').value.trim();
+  const message = $('reqMessage').value.trim();
+  const btn = $('reqBtn');
+  btn.disabled = true;
+  $('reqMsg').textContent = 'Отправка заявки…';
+  try {
+    const r = await api('/api/requests', {
+      method: 'POST',
+      body: JSON.stringify({ trackId, userName, message }),
+    });
+    if (r.ok) {
+      toast('Заказ принят в эфир!', 'success');
+      $('reqMsg').textContent = 'В очереди! Ведущий скоро объявит трек ✓';
+      reqTrackIdEl.value = '';
+      reqSelectedTrackEl.style.display = 'none';
+      $('reqMessage').value = '';
+      loadRecentRequests();
+    } else {
+      $('reqMsg').textContent = r.error || 'Ошибка';
+      toast(r.error || 'Не удалось заказать трек', 'error');
+    }
+  } catch (e) {
+    $('reqMsg').textContent = 'Ошибка сети';
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+async function loadRecentRequests() {
+  try {
+    const data = await api('/api/requests');
+    const items = data.items || [];
+    if (!items.length) {
+      $('reqRecentList').innerHTML = '<div style="margin-top:6px; color:var(--dim);">Заказов пока не было. Будьте первыми!</div>';
+      return;
+    }
+    const html = items.slice(0, 4).map((i) => {
+      const statusIcon = i.status === 'played' ? '✓ в эфире' : '⏳ в очереди';
+      const statusColor = i.status === 'played' ? 'var(--green)' : 'var(--acc)';
+      const msg = i.message ? ` — «${escapeHtml(i.message)}»` : '';
+      return `<div style="padding:4px 0; border-bottom:1px solid var(--line);">
+        <strong style="color:var(--txt);">${escapeHtml(i.artist || '')} — ${escapeHtml(i.title || '')}</strong> 
+        <span style="color:var(--dim); font-size:10px;">(от ${escapeHtml(i.user_name || 'слушателя')}${msg})</span>
+        <span style="color:${statusColor}; float:right; font-size:10px;">${statusIcon}</span>
+      </div>`;
+    }).join('');
+    $('reqRecentList').innerHTML = '<div style="font-weight:600; margin-bottom:4px; color:var(--dim);">Недавние заявки:</div>' + html;
+  } catch { /* игнор */ }
+}
+
+// Добавление темы
+const topicTextEl = $('topicText');
+topicTextEl.oninput = () => { $('topicCharCount').textContent = `${topicTextEl.value.length} / 500`; };
+$('topicBtn').onclick = async () => {
+  const text = topicTextEl.value.trim();
+  if (!text) return;
+  const r = await api('/api/topics', { method: 'POST', body: JSON.stringify({ text }) });
+  if (r.ok) {
+    topicTextEl.value = '';
+    $('topicCharCount').textContent = '0 / 500';
+    toast('Тема добавлена в очередь', 'success');
+    refreshLists();
+  } else {
+    toast(r.error || 'Ошибка', 'error');
+  }
+};
+
+// Добавление KB
+$('kbBtn').onclick = async () => {
+  const title = $('kbTitle').value.trim();
+  const text = $('kbText').value.trim();
+  if (!title || !text) { toast('Заполните заголовок и текст факта', 'error'); return; }
+  const r = await api('/api/kb', { method: 'POST', body: JSON.stringify({ title, text }) });
+  if (r.ok) {
+    $('kbTitle').value = '';
+    $('kbText').value = '';
+    toast(`Запомнили (${r.chunks} фрагм.)`, 'success');
+    refreshLists();
+  } else {
+    toast(r.error || 'Ошибка', 'error');
+  }
+};
+
+// Переключатель микрофона DJ
+$('djToggle').onclick = async () => {
+  const on = !$('djToggle').classList.contains('on');
+  await api('/api/dj', { method: 'POST', body: JSON.stringify({ enabled: on }) });
+  $('djToggle').classList.toggle('on', on);
+  toast(on ? 'Ведущий включён' : 'Ведущий на паузе');
+};
+
+// Настройки
 let setSchema = [];
 const fieldId = (key) => 'set_' + key.replace(/\./g, '__');
 
@@ -336,7 +1574,7 @@ async function loadSettings() {
     const r = await api('/api/settings');
     setSchema = r.schema || [];
     renderSettings(r.schema || [], r.values || {});
-  } catch { /* не авторизованы — покажет логин */ }
+  } catch { /* unauth */ }
 }
 
 function renderSettings(schema, values) {
@@ -349,14 +1587,14 @@ function renderSettings(schema, values) {
       const id = fieldId(s.key);
       const v = values[s.key];
       if (s.type === 'bool') {
-        html += `<div class="set-f bool"><span class="muted">${esc(s.label)}</span>
+        html += `<div class="set-f bool"><span style="color:var(--txt)">${esc(s.label)}</span>
           <button type="button" class="toggle ${v ? 'on' : ''}" id="${id}"></button></div>`;
       } else if (s.type === 'select') {
         html += `<div class="set-f"><label>${esc(s.label)}</label><select id="${id}">
           ${s.options.map((o) => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}
         </select></div>`;
       } else if (s.type === 'textarea') {
-        html += `<div class="set-f"><label>${esc(s.label)}</label><textarea id="${id}" style="min-height:44px">${esc(v || '')}</textarea></div>`;
+        html += `<div class="set-f"><label>${esc(s.label)}</label><textarea id="${id}" style="min-height:50px">${esc(v || '')}</textarea></div>`;
       } else if (s.type === 'number') {
         html += `<div class="set-f"><label>${esc(s.label)}</label>
           <input id="${id}" type="number" min="${s.min}" max="${s.max}" step="${s.step}" value="${v}"></div>`;
@@ -384,44 +1622,166 @@ function collectSettings() {
 }
 
 $('settingsSave').onclick = async () => {
+  const btn = $('settingsSave');
+  btn.disabled = true;
   try {
-    const r = await api('/api/settings', { method:'POST', body: JSON.stringify(collectSettings()) });
-    if (!r.ok) { $('settingsMsg').textContent = r.error || 'ошибка'; return; }
-    $('settingsMsg').textContent = `сохранили ${Object.keys(r.applied || {}).length} ✓`;
-  } catch { $('settingsMsg').textContent = 'ошибка сохранения'; }
-  setTimeout(() => { $('settingsMsg').textContent = ''; }, 4000);
+    const r = await api('/api/settings', { method: 'POST', body: JSON.stringify(collectSettings()) });
+    if (r.ok) {
+      toast('Настройки успешно сохранены', 'success');
+      $('settingsMsg').textContent = `Сохранено (${Object.keys(r.applied || {}).length} параметров) ✓`;
+    } else {
+      toast(r.error || 'Ошибка сохранения', 'error');
+    }
+  } catch {
+    toast('Ошибка сохранения настроек', 'error');
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { $('settingsMsg').textContent = ''; }, 3500);
+  }
 };
 
 $('settingsReset').onclick = async () => {
-  const r = await api('/api/settings/reset', { method:'POST' });
+  if (!confirm('Сбросить все настройки эфира к стандартным значениям?')) return;
+  const r = await api('/api/settings/reset', { method: 'POST' });
   renderSettings(r.schema || [], r.values || {});
-  $('settingsMsg').textContent = 'сброшено к дефолтам';
-  setTimeout(() => { $('settingsMsg').textContent = ''; }, 3000);
+  toast('Настройки сброшены');
 };
 
-async function refreshPublic() {
-  try {
-    const st = await fetch('/api/now').then((r) => r.json());
-    $('radioName').textContent = st.radioName || 'Радио';
-    $('loginName').textContent = st.radioName || 'Радио';
-    const np = st.nowPlaying;
-    $('npTitle').textContent = np && np.title ? np.title : 'тишина';
-    $('npArtist').textContent = np && np.artist ? np.artist : '';
-    $('liveBadge').classList.toggle('off', !st.live);
-    $('liveBadge').textContent = st.live ? 'LIVE' : 'OFF';
-  } catch { /* эфир догонит следующим тиком */ }
+// ---------- Плеер: Воспроизведение, Спектр, Громкость ----------
+const stream = $('stream');
+const playBtn = $('playBtn');
+const muteBtn = $('muteBtn');
+const spec = $('spectrum');
+let actx = null, analyser = null, rafId = null;
+
+const savedVol = localStorage.getItem('radioVol');
+if (savedVol !== null) {
+  $('vol').value = savedVol;
+  stream.volume = Number(savedVol);
+}
+updateMuteIcon(stream.volume);
+
+$('vol').oninput = (e) => {
+  const v = Number(e.target.value);
+  stream.volume = v;
+  localStorage.setItem('radioVol', v);
+  if (v > 0) lastVolume = v;
+  updateMuteIcon(v);
+};
+
+function updateMuteIcon(v) {
+  muteBtn.textContent = v <= 0.001 ? '🔇' : v < 0.5 ? '🔉' : '🔊';
 }
 
+muteBtn.onclick = () => {
+  if (stream.volume > 0.001) {
+    lastVolume = stream.volume;
+    stream.volume = 0;
+    $('vol').value = 0;
+  } else {
+    stream.volume = lastVolume || 0.8;
+    $('vol').value = stream.volume;
+  }
+  localStorage.setItem('radioVol', stream.volume);
+  updateMuteIcon(stream.volume);
+};
+
+function initAudioContext() {
+  if (actx) return;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = actx.createMediaElementSource(stream);
+    analyser = actx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.82;
+    src.connect(analyser);
+    analyser.connect(actx.destination);
+  } catch (e) { /* автоплей ограничения */ }
+}
+
+playBtn.onclick = () => {
+  if (!stream.paused) {
+    stream.pause();
+    playBtn.textContent = '▶';
+    playBtn.title = 'Воспроизведение';
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = null;
+    const g = spec.getContext('2d');
+    g.clearRect(0, 0, spec.width, spec.height);
+    return;
+  }
+  initAudioContext();
+  if (actx && actx.state === 'suspended') actx.resume();
+
+  // При повторном старте сбрасываем src чтобы получить свежий лайв-буфер
+  stream.src = '/radio.mp3?t=' + Date.now();
+  playBtn.textContent = '⌛';
+  playBtn.classList.add('loading');
+  stream.play()
+    .then(() => {
+      playBtn.classList.remove('loading');
+      playBtn.textContent = '⏸';
+      playBtn.title = 'Пауза';
+      drawSpectrum();
+    })
+    .catch(() => {
+      playBtn.classList.remove('loading');
+      playBtn.textContent = '▶';
+      toast('Не удалось подключиться к аудиопотоку', 'error');
+    });
+};
+
+// Пробел — плей/пауза (если фокус не в инпуте)
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+    e.preventDefault();
+    playBtn.click();
+  }
+});
+
+function drawSpectrum() {
+  rafId = requestAnimationFrame(drawSpectrum);
+  spec.width = Math.max(1, spec.clientWidth * (window.devicePixelRatio || 1));
+  spec.height = Math.max(1, spec.clientHeight * (window.devicePixelRatio || 1));
+  const g = spec.getContext('2d');
+  g.clearRect(0, 0, spec.width, spec.height);
+  if (!analyser) return;
+  const bins = new Uint8Array(analyser.frequencyBinCount);
+  analyser.getByteFrequencyData(bins);
+  const N = 48;
+  const bw = spec.width / N;
+  for (let i = 0; i < N; i++) {
+    const v = bins[i + 2] / 255;
+    const h = Math.max(2, v * spec.height * 0.94);
+    g.fillStyle = `rgba(255, 92, 57, ${(0.35 + v * 0.65).toFixed(2)})`;
+    g.fillRect(i * bw + bw * 0.15, spec.height - h, bw * 0.7, h);
+  }
+}
+
+// Инициализация при загрузке
 (async () => {
-  $('app').style.display = 'block';
-  showLogin(false);
   refreshPublic();
-  setInterval(refreshPublic, 5000);
   try {
     const r = await fetch('/api/state');
-    if (r.ok) { setAuthed(true); boot(); }
-    else setAuthed(false);
-  } catch { setAuthed(false); }
+    if (r.ok) {
+      setAuthed(true);
+      const st = await r.json();
+      renderState(st);
+    } else {
+      setAuthed(false);
+    }
+  } catch {
+    setAuthed(false);
+  }
+
+  // Периодический опрос
+  setInterval(() => {
+    if (authed) {
+      refreshAdmin();
+    } else {
+      refreshPublic();
+    }
+  }, 4000);
 })();
 </script>
 </body>

@@ -1,13 +1,42 @@
 'use strict';
 
 const config = require('./config');
+const settings = require('./settings');
 const ollama = require('./ollama');
 const kb = require('./kb');
 const { prepareInsert, prepareDialogueInsert } = require('./tts-client');
 const { db } = require('./db');
 const log = require('./logger');
+const weather = require('./weather');
 
 const DJ = config.dj;
+
+const DAYS = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
+
+async function broadcastTimeContext() {
+  const now = new Date();
+  const day = DAYS[now.getDay()];
+  const h = now.getHours();
+  const m = String(now.getMinutes()).padStart(2, '0');
+  let period = 'ночь';
+  if (h >= 5 && h < 12) period = 'утро';
+  else if (h >= 12 && h < 18) period = 'день';
+  else if (h >= 18 && h < 23) period = 'вечер';
+
+  let vibe = '';
+  if (now.getDay() === 5 && h >= 16) vibe = 'Конец рабочей недели, вечер пятницы — время расслабиться и слушать музыку.';
+  else if (now.getDay() === 6) vibe = 'Суббота — главный выходной недели, полный отрыв.';
+  else if (now.getDay() === 0 && h >= 17) vibe = 'Воскресный вечер — завершение выходных, завтра понедельник.';
+  else if (now.getDay() === 1 && h < 13) vibe = 'Утро понедельника — все сонные и раскачиваются.';
+
+  let weatherText = '';
+  try {
+    const w = await weather.getWeather();
+    if (w && w.text) weatherText = w.text;
+  } catch { /* игнорируем ошибку погоды */ }
+
+  return `День недели: ${day}. Время суток: ${period} (${h}:${m}). ${vibe} ${weatherText}`.trim();
+}
 
 function timeOfDay() {
   const h = new Date().getHours();
@@ -15,6 +44,53 @@ function timeOfDay() {
   if (h >= 12 && h < 18) return 'день';
   if (h >= 18 && h < 23) return 'вечер';
   return 'ночь';
+}
+
+const recentSpeeches = [];
+const MAX_RECENT_SPEECHES = 4;
+
+function recordSpeech(text) {
+  if (!text) return;
+  const snippet = text.slice(0, 150).replace(/\s+/g, ' ').trim();
+  recentSpeeches.push(snippet);
+  if (recentSpeeches.length > MAX_RECENT_SPEECHES) recentSpeeches.shift();
+}
+
+const FEMALE_NAMES = new Set([
+  'анна', 'аня', 'алена', 'алёна', 'алина', 'алиса', 'анастасия', 'настя', 'ангелина',
+  'валентина', 'валя', 'валерия', 'лера', 'василиса', 'вера', 'вероника', 'виктория', 'вика',
+  'галина', 'галя', 'дарья', 'даша', 'диана', 'евгения', 'женя', 'екатерина', 'катя', 'елена', 'лена',
+  'елизавета', 'лиза', 'жанна', 'инна', 'ирина', 'ира', 'кристина', 'ксения', 'ксюша', 'лариса',
+  'любовь', 'люба', 'людмила', 'люда', 'маргарита', 'рита', 'марина', 'мария', 'маша', 'милана',
+  'надежда', 'надя', 'наталья', 'наташа', 'нелли', 'нина', 'оксана', 'ольга', 'оля', 'полина',
+  'светлана', 'света', 'софия', 'соня', 'тамара', 'тома', 'татьяна', 'таня', 'ульяна', 'юлия', 'юля', 'яна'
+]);
+
+const MALE_NAMES_WITH_A = new Set([
+  'саша', 'женя', 'ваня', 'дима', 'коля', 'миша', 'паша', 'вова', 'лёша', 'леша', 'илья', 'никита', 'данила', 'серёжа', 'сережа'
+]);
+
+function pickCallerVoice(name, genderHint, djSpeaker) {
+  const norm = String(name || '').trim().toLowerCase().split(/\s+/)[0];
+  let isFemale = false;
+
+  if (genderHint === 'female') isFemale = true;
+  else if (genderHint === 'male') isFemale = false;
+  else {
+    if (FEMALE_NAMES.has(norm)) isFemale = true;
+    else if (MALE_NAMES_WITH_A.has(norm)) isFemale = false;
+    else if (norm.endsWith('а') || norm.endsWith('я')) isFemale = true;
+    else isFemale = false;
+  }
+
+  if (isFemale) {
+    const femaleVoices = ['kseniya', 'baya', 'xenia'];
+    return femaleVoices[Math.floor(Math.random() * femaleVoices.length)];
+  } else {
+    if (djSpeaker === 'eugene') return 'aidar';
+    if (djSpeaker === 'aidar') return 'eugene';
+    return Math.random() < 0.5 ? 'aidar' : 'eugene';
+  }
 }
 
 function personaSystem(kind) {
@@ -34,6 +110,13 @@ function personaSystem(kind) {
   ];
   if (kind === 'call') {
     base.push('Сейчас ты оформляешь ЗВОНОК СЛУШАТЕЛЯ В СТУДИЮ как ДИАЛОГ.');
+  } else if (kind === 'news') {
+    base.push('Сейчас ты ведёшь ВЫПУСК НОВОСТЕЙ на радиостанции.');
+    base.push('Твоя задача — рассказать главные новости слушателям в своём фирменном стиле: иронично, метко, с сарказмом и подколками, без унылого официоза.');
+    base.push('Пересказывай суть своими словами, связывай новости между собой и в конце выпуска бодро перекидывай мостик к музыке.');
+  } else if (kind === 'request') {
+    base.push('Сейчас ты объявляешь ЗАКАЗ ТРЕКА ОТ СЛУШАТЕЛЯ из «Стола заказов».');
+    base.push('Твоя задача — назвать имя слушателя, обыграть или зачитать его пожелание/привет, метко и с юмором прокомментировать заказанную песню и объявить её выход в эфир.');
   }
   return base.join(' ');
 }
@@ -165,6 +248,7 @@ async function generateDialogue(ctx, call = {}) {
   const who = call.name || 'слушатель';
   const said = callerOpening(call);
   const mood = pick(MOODS);
+  const moodPrompt = call.mood ? `Характер звонящего: ${call.mood}. ` : '';
   const linesCount = 3 + Math.floor(Math.random() * 3); // 3-5, первая реплика звонящего уже есть
   const prompt = `${ctx}
 
@@ -177,7 +261,7 @@ async function generateDialogue(ctx, call = {}) {
 - Не повторяй заявку дословно
 - В text — только слова в эфир, без ремарок и кавычек
 - Числа и даты — словами
-- Настроение всей сцены, держи его: ${mood}`;
+- ${moodPrompt}Настроение ведущего: ${mood}`;
   let lastErr = new Error('нет ответа от LLM');
   for (let attempt = 0; attempt < 2; attempt++) {
     const raw = await ollama.chat(
@@ -212,12 +296,70 @@ async function generateDialogue(ctx, call = {}) {
   throw lastErr;
 }
 
-async function buildContext({ topic, nextTrack, prevTrack } = {}) {
-  const parts = [`Время суток: ${timeOfDay()}.`];
+/** Сохранение памятки/саммари звонка в базу знаний RAG. */
+async function summarizeAndSaveCall(call, lines) {
+  if (settings.get('call.saveToKb') === false) return;
+  const who = call?.name || 'Слушатель';
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' }) + ', ' +
+    now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  const title = `Звонок: ${who} (${dateStr})`;
+
+  const dialogText = (lines || [])
+    .map((l) => `${l.speaker === 'dj' ? DJ.name : who}: ${l.text}`)
+    .join('\n');
+
+  let summary = '';
+  try {
+    const prompt = `Вот расшифровка звонка слушателя в эфир радиостанции:\n${dialogText}\n\nНапиши краткую памятку для ведущего радио (1–2 предложения) от третьего лица: кто звонил, о чём был разговор, что рассказал или о чём поспорил слушатель, и чем закончился диалог. Только факты для памяти ведущего, чтобы вспомнить в будущих эфирах. Без ремарок и кавычек.`;
+    const raw = await ollama.chat(
+      [
+        { role: 'system', content: 'Ты — редактор радиостанции. Пиши краткие информативные выжимки звонков в эфир.' },
+        { role: 'user', content: prompt },
+      ],
+      { temperature: 0.5, maxTokens: 160 }
+    );
+    summary = String(raw).replace(/\s+/g, ' ').replace(/[«»"]/g, '').trim();
+  } catch (e) {
+    log.warn(`dj: не удалось сгенерировать саммари звонка: ${e.message}`);
+  }
+
+  if (!summary || summary.length < 15) {
+    summary = `${who} дозвонился в студию с заявкой: ${call?.text || 'свободная беседа'}. Ведущий ${DJ.name} обсудил тему в эфире.`;
+  }
+
+  try {
+    await kb.add(title, summary);
+    log.info(`dj: саммари звонка «${title}» добавлено в базу знаний: «${summary.slice(0, 80)}...»`);
+  } catch (e) {
+    log.error(`dj: ошибка сохранения саммари в kb: ${e.message}`);
+  }
+}
+
+async function buildContext({ topic, nextTrack, prevTrack, newsItems, request } = {}) {
+  const timeCtx = await broadcastTimeContext();
+  const parts = [timeCtx];
   if (prevTrack) parts.push(`Только что играло: «${prevTrack.artist || 'неизвестный'} — ${prevTrack.title}».`);
   if (nextTrack) parts.push(`Дальше прозвучит: «${nextTrack.artist || 'неизвестный'} — ${nextTrack.title}».`);
   if (topic) parts.push(`Тема от слушателя: «${topic}» — вплети её в реплику.`);
-  const cue = topic || (nextTrack ? `${nextTrack.title} ${nextTrack.artist || ''}` : '');
+  if (request) {
+    const who = request.userName || 'слушатель';
+    const msg = request.message ? `Пожелание/привет: «${request.message}»` : 'без особого текста';
+    parts.push(`В стол заказов прилетела заявка от слушателя по имени ${who}. ${msg}.`);
+  }
+  if (newsItems && newsItems.length) {
+    parts.push('Свежие новости из ленты для выпуска:');
+    for (const [idx, item] of newsItems.entries()) {
+      const src = item.feed_name ? ` [источник: ${item.feed_name}]` : '';
+      const sum = item.summary ? ` — ${item.summary}` : '';
+      parts.push(`${idx + 1}. «${item.title}»${src}${sum}`);
+    }
+  }
+  if (recentSpeeches.length) {
+    parts.push(`В прошлых недавних выходах ты уже говорил: «${recentSpeeches.join('» | «')}». Не повторяй эти темы, слова и шутки, придумывай новое.`);
+  }
+  parts.push('ВАЖНО ДЛЯ ДИКТОРА: Названия треков и артистов с латиницы пиши русской транскрипцией (например: Spice Girls -> Спайс Гёрлз, The Prodigy -> Зе Продиджи), чтобы синтезатор речи не ломал звуки.');
+  const cue = topic || (request ? `${request.artist} ${request.title}` : '') || (newsItems && newsItems[0] ? newsItems[0].title : '') || (nextTrack ? `${nextTrack.title} ${nextTrack.artist || ''}` : '');
   if (cue) {
     try {
       const hits = await kb.search(cue);
@@ -228,7 +370,7 @@ async function buildContext({ topic, nextTrack, prevTrack } = {}) {
   return parts.join(' ');
 }
 
-async function generateText(kind, ctx) {
+async function generateText(kind, ctx, { request, nextTrack } = {}) {
   const messages = [
     { role: 'system', content: personaSystem(kind) },
     { role: 'user', content: ctx },
@@ -237,15 +379,25 @@ async function generateText(kind, ctx) {
     messages.push({ role: 'user', content: `Поприветствуй слушателей «${DJ.radioName}». В эфире ты первый раз за сегодня. Монолог на 8–12 предложений: настроение, время суток, чего ждать от эфира, пара историй.` });
   } else if (kind === 'chatter') {
     messages.push({ role: 'user', content: `Подводка к следующему треку: назови, что прозвучит дальше — «${ctx.match(/Дальше прозвучит: «(.+?)»/)?.[1] || 'трек'}» — и расскажи о нём: ожидание, ассоциация, ехидный комментарий, можно вспомнить только что отыгравший трек и кинуть слушателям вопрос. 6-10 предложений.` });
+  } else if (kind === 'news') {
+    messages.push({ role: 'user', content: `Проведи короткий выпуск новостей на 8–12 предложений по предоставленной сводке. Начни с бодрого радио-входа («В эфире новости на «${DJ.radioName}»...»), освети новости живо, ехидно и с юмором, перекинь мостик к следующему треку. Без списков и цифр, все числа пиши прописью.` });
+  } else if (kind === 'request') {
+    const user = request?.userName || 'слушатель';
+    const msg = request?.message ? `Пожелание/привет: «${request.message}».` : 'Без пожелания.';
+    const trackName = nextTrack ? `«${nextTrack.artist || ''} — ${nextTrack.title}»` : 'следующий трек';
+    messages.push({
+      role: 'user',
+      content: `В эфир поступил заказ из «Стола заказов»! Назови слушателя (${user}), передай привет или обыграй его сообщение (${msg}), дай короткий комментарий к выбранной песне ${trackName} в своём фирменном стиле (с иронией, но с душой) и объяви запуск трека. 5–7 предложений. Числа и даты пиши словами, названия на латинице транскрибируй по-русски.`
+    });
   }
   return ollama.chat(messages, { temperature: 1.0, maxTokens: DJ.maxTokens });
 }
 
 /**
  * Готовит голосовую вставку. Возвращает insert | null.
- * kind: greeting | topic | chatter | call
+ * kind: greeting | topic | chatter | call | news | request
  */
-async function prepareBreak({ kind, topic, nextTrack, prevTrack, callerSpeaker, call } = {}) {
+async function prepareBreak({ kind, topic, nextTrack, prevTrack, callerSpeaker, call, newsItems, request } = {}) {
   if (!(await ollama.healthy())) {
     log.warn('dj: ollama недоступна, реплика отменена');
     return null;
@@ -255,12 +407,15 @@ async function prepareBreak({ kind, topic, nextTrack, prevTrack, callerSpeaker, 
     let insert = null;
     if (kind === 'call') {
       // диалог «звонящий ↔ Валера»: LLM-сценарий -> озвучка каждой реплики своим голосом
+      const chosenSpeaker = callerSpeaker || pickCallerVoice(call?.name, call?.gender, DJ.speaker);
       const lines = await generateDialogue(topic, call);
-      insert = await prepareDialogueInsert(lines);
+      // Асинхронно сохраняем выжимку звонка в базу знаний RAG
+      summarizeAndSaveCall(call, lines).catch((err) => log.warn(`dj: ошибка сохранения саммари звонка: ${err.message}`));
+      insert = await prepareDialogueInsert(lines, { callerSpeaker: chosenSpeaker });
       text = lines.map((l) => (l.speaker === 'dj' ? '🔧 ' : '📞 ') + l.text).join('\n');
     } else {
-      const ctx = await buildContext({ topic, nextTrack, prevTrack });
-      text = await generateText(kind, ctx);
+      const ctx = await buildContext({ topic, nextTrack, prevTrack, newsItems, request });
+      text = await generateText(kind, ctx, { request, nextTrack });
     }
     // страховка от разросшихся монологов (диалоги уходят своей веткой)
     if (!insert && text.length > 1200) text = text.slice(0, 1200).replace(/\s+\S*$/, '') + '...';
@@ -269,7 +424,10 @@ async function prepareBreak({ kind, topic, nextTrack, prevTrack, callerSpeaker, 
       const rate = kind === 'call' ? Number(DJ.callerRate) || 1 : Number(DJ.rate) || 1;
       insert = await prepareInsert({ text, speaker, kind, rate });
     }
-    if (insert) insert.text = text || insert.text;
+    if (insert) {
+      insert.text = text || insert.text;
+      recordSpeech(insert.text);
+    }
     return insert;
   } catch (e) {
     log.error(`dj: генерация ${kind} упала: ${e.message}`);

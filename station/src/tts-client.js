@@ -128,10 +128,15 @@ async function prepareInsert({ text, speaker, kind, rate }) {
     fs.writeFileSync(wavPath, wav);
     await wavToRaw(wavPath, rawPath);
     fs.unlinkSync(wavPath);
+    if (kind === 'news') {
+      const stinger = newsStinger();
+      const rawBuf = fs.readFileSync(rawPath);
+      fs.writeFileSync(rawPath, Buffer.concat([stinger, rawBuf]));
+    }
     await normalizeRaw(rawPath);
     const bytes = fs.statSync(rawPath).size;
     log.info(`tts: вставка ${kind} готова (${(bytes / BYTES_PER_SEC).toFixed(1)}s): «${text.slice(0, 60)}...»`);
-    return { id, kind, text, speaker, path: rawPath, bytes };
+    return { id, kind, text, speaker, path: rawPath, bytes, temp: true };
   } catch (e) {
     log.error(`tts: вставка ${kind} не удалась: ${e.message}`);
     return null;
@@ -192,6 +197,64 @@ function phonePickup() {
   };
 }
 
+/** Короткие гудки отбоя (busy tone) и щелчок трубки в конце звонка, s16le stereo 44.1k. */
+function phoneHangup() {
+  const sr = 44100;
+  const tone = (ms, amp) => {
+    const n = Math.round((sr * ms) / 1000);
+    const buf = Buffer.alloc(n * 4);
+    for (let i = 0; i < n; i++) {
+      const env = Math.min(1, i / 120, (n - i) / 120);
+      writeStereoSample(buf, i, Math.sin((2 * Math.PI * 425 * i) / sr) * amp * env * 32767);
+    }
+    return buf;
+  };
+  const gap = (ms) => Buffer.alloc(Math.round((BYTES_PER_SEC * ms) / 1000) & ~3);
+  const clickN = Math.round(sr * 0.035);
+  const click = Buffer.alloc(clickN * 4);
+  for (let i = 0; i < clickN; i++) {
+    const env = Math.exp(-i / 180);
+    writeStereoSample(click, i, (Math.random() * 2 - 1) * env * 9000);
+  }
+  return Buffer.concat([
+    gap(150),
+    click,
+    gap(200),
+    tone(240, 0.18),
+    gap(240),
+    tone(240, 0.18),
+    gap(240),
+    tone(240, 0.18),
+    gap(150),
+  ]);
+}
+
+/** Звуковая шапка новостей: классические радио-пипы точного времени (3 коротких + 1 длинный высокий), s16le stereo 44.1k. */
+function newsStinger() {
+  const sr = 44100;
+  const tone = (freq, ms, amp) => {
+    const n = Math.round((sr * ms) / 1000);
+    const buf = Buffer.alloc(n * 4);
+    for (let i = 0; i < n; i++) {
+      const env = Math.min(1, i / 100, (n - i) / 100);
+      writeStereoSample(buf, i, Math.sin((2 * Math.PI * freq * i) / sr) * amp * env * 32767);
+    }
+    return buf;
+  };
+  const gap = (ms) => Buffer.alloc(Math.round((BYTES_PER_SEC * ms) / 1000) & ~3);
+
+  return Buffer.concat([
+    tone(800, 70, 0.20),
+    gap(130),
+    tone(800, 70, 0.20),
+    gap(130),
+    tone(800, 70, 0.20),
+    gap(130),
+    tone(1600, 240, 0.25),
+    gap(200),
+  ]);
+}
+
 /** Пауза между репликами диалога: рандом в заданных пределах — звучит живее. */
 function dialogueGapBytes() {
   let lo = Number(settings.get('audio.gapMinMs')) || 250;
@@ -206,19 +269,22 @@ function dialogueGapBytes() {
 
 /**
  * Диалоговая вставка: каждая реплика озвучивается своим голосом,
- * между репликами пауза, всё склеивается в один raw-файл.
+ * между репликами пауза, в конце гудки отбоя.
  * lines: [{speaker: 'dj'|'caller', text}]
  */
-async function prepareDialogueInsert(lines) {
+async function prepareDialogueInsert(lines, { callerSpeaker, callerRate } = {}) {
   const id = crypto.randomBytes(5).toString('hex');
   const rawPath = path.join(INSERT_DIR, `${id}.raw`);
   const bed = phonePickup();
+  const hangup = phoneHangup();
   const parts = [bed.open];
+  const cSpeaker = callerSpeaker || config.dj.callerSpeaker;
+  const cRate = callerRate || settings.get('dj.callerRate');
   try {
     for (let i = 0; i < lines.length; i++) {
       const isDj = lines[i].speaker === 'dj';
-      const speaker = isDj ? config.dj.speaker : config.dj.callerSpeaker;
-      const rate = isDj ? settings.get('dj.rate') : settings.get('dj.callerRate');
+      const speaker = isDj ? config.dj.speaker : cSpeaker;
+      const rate = isDj ? settings.get('dj.rate') : cRate;
       const wav = await synthesize(lines[i].text, speaker, rate);
       const tmp = path.join(INSERT_DIR, `${id}_${i}.wav`);
       fs.writeFileSync(tmp, wav);
@@ -227,12 +293,12 @@ async function prepareDialogueInsert(lines) {
       parts.push(pcm);
       if (i < lines.length - 1) parts.push(dialogueGapBytes());
     }
-    const raw = Buffer.concat([bed.ring, Buffer.concat(parts)]);
+    const raw = Buffer.concat([bed.ring, Buffer.concat(parts), hangup]);
     fs.writeFileSync(rawPath, raw);
     await normalizeRaw(rawPath);
     const text = lines.map((l) => `${l.speaker === 'dj' ? 'DJ' : 'Звонящий'}: ${l.text}`).join(' | ');
-    log.info(`tts: диалоговая вставка готова (${(raw.length / BYTES_PER_SEC).toFixed(1)}s, реплик ${lines.length})`);
-    return { id, kind: 'call', text, speaker: 'dialogue', path: rawPath, bytes: raw.length };
+    log.info(`tts: диалоговая вставка готова (${(raw.length / BYTES_PER_SEC).toFixed(1)}s, реплик ${lines.length}, голос: ${cSpeaker})`);
+    return { id, kind: 'call', text, speaker: 'dialogue', path: rawPath, bytes: raw.length, temp: true };
   } catch (e) {
     log.error(`tts: диалог не удался: ${e.message}`);
     try { fs.existsSync(rawPath) && fs.unlinkSync(rawPath); } catch { /* ок */ }

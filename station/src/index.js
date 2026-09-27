@@ -8,6 +8,7 @@ const { createWeb } = require('./web');
 const library = require('./library');
 const kb = require('./kb');
 const { Program } = require('./program');
+const rss = require('./rss');
 
 if (!config.adminPassword) {
   log.error('ADMIN_PASSWORD не задан — веб-UI будет недоступен');
@@ -19,6 +20,9 @@ setInterval(() => library.scan(config.paths.music).catch(() => {}), 5 * 60 * 100
 
 // --- kb: дозабивка векторов, если при добавлении ollama спала ---
 setInterval(() => kb.backfill().catch(() => {}), 5 * 60 * 1000);
+
+// --- rss: инициализация фидов и фоновый опрос новостей ---
+rss.init();
 
 // --- эфир ---
 const program = new Program();
@@ -37,6 +41,7 @@ const web = createWeb({
   program,
   kb,
   library,
+  rss,
   db: require('./db').db,
 });
 

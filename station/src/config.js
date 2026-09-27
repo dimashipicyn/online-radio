@@ -42,6 +42,9 @@ const config = {
     rate: numAny(process.env.DJ_RATE, 1.0),           // темп речи DJ (1 = норма)
     callerRate: numAny(process.env.CALLER_RATE, 1.0), // темп речи звонящего
   },
+  call: {
+    saveToKb: bool(process.env.CALL_SAVE_TO_KB, true),
+  },
   audio: { // ручки обработки голоса/эфира — крутятся живо из GUI (панель Настройки)
     loudnessTarget: numAny(process.env.LOUDNESS_TARGET, -16), // LUFS
     maxGainDb: 8,      // предел гейна нормализации
@@ -57,6 +60,20 @@ const config = {
     rnn: false,        // нейро-шумодав arnndn (эксперимент)
   },
   kb: { topK: num(process.env.KB_TOP_K, 3), chunkChars: 600 },
+  news: {
+    enabled: bool(process.env.NEWS_ENABLED, true),
+    intervalTracks: num(process.env.NEWS_INTERVAL_TRACKS, 6),
+    itemsPerBreak: num(process.env.NEWS_ITEMS_PER_BREAK, 2),
+  },
+  rss: {
+    pollIntervalMin: num(process.env.RSS_POLL_INTERVAL_MIN, 20),
+  },
+  weather: {
+    enabled: bool(process.env.WEATHER_ENABLED, true),
+    city: process.env.WEATHER_CITY || 'Москва',
+    lat: num(process.env.WEATHER_LAT, 55.7558),
+    lon: num(process.env.WEATHER_LON, 37.6173),
+  },
   paths: { music: '/music', data: process.env.DATA_DIR || '/data' },
 };
 
