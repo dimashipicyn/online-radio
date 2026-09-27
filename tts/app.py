@@ -197,7 +197,11 @@ def _apply_tts(text: str, speaker: str, rate: float) -> torch.Tensor:
         pct = max(50, min(200, round(rate * 100)))
         ssml = f"<speak><prosody rate='{pct}%'>{saxutils.escape(text)}</prosody></speak>"
         return _state["model"].apply_tts(
-            ssml_text=ssml, speaker=speaker, sample_rate=SAMPLE_RATE
+            ssml_text=ssml,
+            speaker=speaker,
+            sample_rate=SAMPLE_RATE,
+            put_accent=True,
+            put_yo=True,
         )
     return _state["model"].apply_tts(
         text=text,
@@ -268,11 +272,13 @@ def _synth(text: str, speaker: str, rate: float) -> torch.Tensor:
     if speaker not in VOICES:
         speaker = "eugene"
     phrases = _split_phrases(text) or [text]
-    gap = torch.zeros(int(SAMPLE_RATE * PHRASE_GAP_SEC))
     parts: list[torch.Tensor] = []
+    import random
     for i, phrase in enumerate(phrases):
         if i:
-            parts.append(gap)
+            # Живая вариативная пауза 120-200мс вместо фиксированных 250мс
+            gap_len = int(SAMPLE_RATE * random.uniform(0.12, 0.20))
+            parts.append(torch.zeros(gap_len))
         parts.append(_synth_phrase(phrase, speaker, rate))
     return torch.cat(parts)
 
