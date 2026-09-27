@@ -103,7 +103,7 @@ services:
 
   # ---------- туннель веб-UI на VPS (запуск: --profile tunnel) ----------
   frpc:
-    image: snowdreamtech/frpc:latest
+    image: snowdreamtech/frpc:0.61.1
     profiles: [tunnel]
     restart: unless-stopped
     volumes:
