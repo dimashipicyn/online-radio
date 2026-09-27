@@ -26,6 +26,13 @@ const SCHEMA = [
   { key: 'dj.callerRate',    type: 'number',   group: 'Звонящие',   label: 'Темп речи звонящего (1 = норма)', min: 0.5, max: 2, step: 0.05 },
   { key: 'call.saveToKb',    type: 'bool',     group: 'Звонящие',   label: 'Сохранять выжимку звонка в базу знаний (RAG)' },
 
+  { key: 'dj.cohostEnabled', type: 'bool',     group: 'Шоу двух ведущих', label: 'Разгоны двух ведущих включены' },
+  { key: 'dj.cohostName',    type: 'text',     group: 'Шоу двух ведущих', label: 'Имя второго ведущего (напарника)', required: true },
+  { key: 'dj.cohostSpeaker', type: 'select',   group: 'Шоу двух ведущих', label: 'Голос второго ведущего', options: VOICES },
+  { key: 'dj.cohostRate',    type: 'number',   group: 'Шоу двух ведущих', label: 'Темп речи второго ведущего', min: 0.5, max: 2, step: 0.05 },
+  { key: 'dj.cohostChance',  type: 'number',   group: 'Шоу двух ведущих', label: 'Шанс разгона вдвоём между треками (вместо соло)', min: 0, max: 1, step: 0.05 },
+  { key: 'dj.cohostStyle',   type: 'textarea', group: 'Шоу двух ведущих', label: 'Стиль второго ведущего (пусто — язвительная напарница)' },
+
   { key: 'music.enabled',    type: 'bool',     group: 'Музыка',     label: 'Музыка в эфире' },
   { key: 'audio.musicVolume', type: 'number',  group: 'Музыка',     label: 'Громкость музыки (1 = норма)', min: 0, max: 1.5, step: 0.05 },
 

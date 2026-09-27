@@ -4,7 +4,7 @@ const config = require('./config');
 const settings = require('./settings');
 const ollama = require('./ollama');
 const kb = require('./kb');
-const { prepareInsert, prepareDialogueInsert } = require('./tts-client');
+const { prepareInsert, prepareDialogueInsert, prepareCoHostDialogueInsert } = require('./tts-client');
 const { db } = require('./db');
 const log = require('./logger');
 const weather = require('./weather');
@@ -131,6 +131,18 @@ const DIALOGUE_FORMAT = {
     type: 'object',
     properties: {
       s: { type: 'string', enum: ['caller', 'dj'] },
+      text: { type: 'string' },
+    },
+    required: ['s', 'text'],
+  },
+};
+
+const DUO_DIALOGUE_FORMAT = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: {
+      s: { type: 'string', enum: ['dj', 'cohost'] },
       text: { type: 'string' },
     },
     required: ['s', 'text'],
@@ -296,6 +308,66 @@ async function generateDialogue(ctx, call = {}) {
   throw lastErr;
 }
 
+/** Разгон дуэта ведущих (Валера + Ксюша): живой юмористический диалог в студии. */
+async function generateDuoDialogue(ctx, { topic, nextTrack, prevTrack, newsItems } = {}) {
+  const djName = settings.get('dj.name') || config.dj.name || 'Валера';
+  const cohostName = settings.get('dj.cohostName') || config.dj.cohostName || 'Ксюша';
+  const radioName = settings.get('dj.radioName') || config.dj.radioName || 'Радио Слом';
+  const djStyle = settings.get('dj.style') || config.dj.style ||
+    `Ты — ${djName}, ведущий «${radioName}». Персонаж: дерзкий, циничный, самовлюблённый, чёрный юмор, любишь развести философию или поныть. Мат — 1-2 на фразу как эмоциональный перец.`;
+  const cohostStyle = settings.get('dj.cohostStyle') || config.dj.cohostStyle ||
+    `Ты — ${cohostName}, соведущая «${radioName}», напарница ${djName}. Персонаж: острая на язык, саркастичная, приземляет пафос ${djName}, ехидно подкалывает за лень и бред, смеётся с его закидонов.`;
+
+  const system = [
+    `Вы — дуэт ведущих в прямом эфире «${radioName}»: ${djName} (роль "dj") и ${cohostName} (роль "cohost").`,
+    `Характер ${djName}: ${djStyle}`,
+    `Характер ${cohostName}: ${cohostStyle}`,
+    'В эфире вы устраиваете живой разгон (юмористический диалог, пинг-понг репликами): цепляетесь за тему, развиваете абсурд, подкалываете друг друга и в конце перекидываете мостик к следующей песне.',
+    'ПРАВИЛА ОЗВУЧКИ: Все числа, время и даты пиши СЛОВАМИ. Без цифр, без латиницы (названия артистов и треков транскрибируй по-русски).',
+    'БЕЗ РЕМАРОК, без смайлов, без скобок («(смеётся)» запрещено), без кавычек-цитат. Только чистый текст для озвучки.',
+    'Отвечай ТОЛЬКО в формате JSON-массива реплик: [{"s":"dj","text":"..."},{"s":"cohost","text":"..."},...]',
+  ].join(' ');
+
+  const trackCue = nextTrack ? `Дальше прозвучит: «${nextTrack.artist || ''} — ${nextTrack.title}».` : '';
+  const prevCue = prevTrack ? `Только что отыграл: «${prevTrack.artist || ''} — ${prevTrack.title}».` : '';
+
+  const prompt = `${ctx}
+
+${prevCue}
+${trackCue}
+
+Задача: Напишите разгон между ${djName} и ${cohostName} на 4–6 реплик.
+1. ${djName} («dj») начинает с темы, наблюдения или странной мысли.
+2. ${cohostName} («cohost») ехидно подхватывает, подкалывает или развивает разгон.
+3. Продолжайте пинг-понг по очереди: dj, cohost, dj, cohost...
+4. В последней реплике кто-то из ведущих объявляет следующий трек и запускает музыку.
+Каждая реплика — 1–3 живых предложения, без воды. Формат строго JSON.`;
+
+  let lastErr = new Error('нет ответа от LLM');
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const raw = await ollama.chat(
+      [
+        { role: 'system', content: system },
+        { role: 'user', content: prompt },
+      ],
+      { temperature: 0.95, maxTokens: 900, format: DUO_DIALOGUE_FORMAT }
+    );
+    const arr = parseDialogue(raw);
+    let lines = arr
+      .filter((l) => l && typeof l.text === 'string' && l.text.trim())
+      .map((l) => ({ speaker: l.s === 'cohost' ? 'cohost' : 'dj', text: cleanLine(l.text) }))
+      .filter((l) => l.text);
+
+    if (lines.length >= 3) {
+      // убеждаемся, что первая реплика dj, и они строго чередуются
+      lines = lines.map((l, i) => ({ ...l, speaker: i % 2 === 0 ? 'dj' : 'cohost' }));
+      return lines;
+    }
+    lastErr = new Error(`пригодных реплик ${lines.length}`);
+  }
+  throw lastErr;
+}
+
 /** Сохранение памятки/саммари звонка в базу знаний RAG. */
 async function summarizeAndSaveCall(call, lines) {
   if (settings.get('call.saveToKb') === false) return;
@@ -413,6 +485,16 @@ async function prepareBreak({ kind, topic, nextTrack, prevTrack, callerSpeaker, 
       summarizeAndSaveCall(call, lines).catch((err) => log.warn(`dj: ошибка сохранения саммари звонка: ${err.message}`));
       insert = await prepareDialogueInsert(lines, { callerSpeaker: chosenSpeaker });
       text = lines.map((l) => (l.speaker === 'dj' ? '🔧 ' : '📞 ') + l.text).join('\n');
+    } else if (kind === 'duo') {
+      // разгон дуэта ведущих «Валера + Ксюша»: сценарий в студии -> озвучка каждого своим студийным голосом
+      const ctx = await buildContext({ topic, nextTrack, prevTrack, newsItems, request });
+      const lines = await generateDuoDialogue(ctx, { topic, nextTrack, prevTrack, newsItems });
+      const cohostSpeaker = settings.get('dj.cohostSpeaker') || config.dj.cohostSpeaker || 'kseniya';
+      const cohostRate = Number(settings.get('dj.cohostRate') || config.dj.cohostRate || 1.05);
+      insert = await prepareCoHostDialogueInsert(lines, { cohostSpeaker, cohostRate });
+      const djName = settings.get('dj.name') || config.dj.name || 'Валера';
+      const cohostName = settings.get('dj.cohostName') || config.dj.cohostName || 'Ксюша';
+      text = lines.map((l) => (l.speaker === 'dj' ? `🎙️ ${djName}: ` : `📻 ${cohostName}: `) + l.text).join('\n');
     } else {
       const ctx = await buildContext({ topic, nextTrack, prevTrack, newsItems, request });
       text = await generateText(kind, ctx, { request, nextTrack });

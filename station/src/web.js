@@ -178,7 +178,8 @@ function makeRoutes({ getStatus, program, kb, library, rss, db }) {
 
     'POST /api/dj/break': async (_req, res, body) => {
       const topic = body && body.topic ? String(body.topic).trim() : null;
-      const result = await program.triggerBreakNow({ topic });
+      const kind = body && body.kind ? String(body.kind).trim() : null;
+      const result = await program.triggerBreakNow({ topic, kind });
       send(res, result.ok ? 200 : 500, result);
     },
 

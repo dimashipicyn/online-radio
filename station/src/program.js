@@ -28,6 +28,15 @@ const RELEASE_RAMP_SEC = 1.5;   // возврат громкости музык�
 const SPEECH_BED_LEAD_SEC = 6;  // за сколько до конца речи запускаем следующий трек
 const SPEECH_FADE_SEC = 4;      // нарастание музыки под хвостом спича
 
+function formatInsertMeta(insert) {
+  const djName = settings.get('dj.name') || config.dj.name || 'Валера';
+  const cohostName = settings.get('dj.cohostName') || config.dj.cohostName || 'Ксюша';
+  if (insert.kind === 'jingle') return { title: 'джингл', artist: null };
+  if (insert.kind === 'call') return { title: 'звонок в студию', artist: 'Звонок' };
+  if (insert.kind === 'duo') return { title: 'разгон в студии', artist: `${djName} и ${cohostName}` };
+  return { title: `в эфире ${djName}`, artist: djName };
+}
+
 /**
  * Программный директор эфира. Микшер дёргает program.readChunk() каждый тик.
  * Состояния: music (трек) -> insert (джингл/DJ/звонок) -> music -> ...
@@ -209,12 +218,15 @@ class Program {
       }
 
       const wantChatter = Math.random() < config.dj.chatterChance;
+      const cohostEnabled = settings.get('dj.cohostEnabled') !== false && (config.dj.cohostEnabled !== false);
+      const cohostChance = Number(settings.get('dj.cohostChance') ?? config.dj.cohostChance ?? 0.4);
+
       if (topic || request || isFirst || newsItems || wantChatter) {
         let nextTrack = null;
         let breakKind = 'chatter';
 
         if (topic) {
-          breakKind = 'topic';
+          breakKind = (cohostEnabled && Math.random() < cohostChance) ? 'duo' : 'topic';
           nextTrack = this._ensureNextTrack();
         } else if (request) {
           breakKind = 'request';
@@ -234,7 +246,7 @@ class Program {
           breakKind = 'news';
           nextTrack = this._ensureNextTrack();
         } else {
-          breakKind = 'chatter';
+          breakKind = (cohostEnabled && Math.random() < cohostChance) ? 'duo' : 'chatter';
           nextTrack = this._ensureNextTrack();
         }
 
@@ -329,9 +341,10 @@ class Program {
       const stream = fs.createReadStream(insert.path, { highWaterMark: BYTES_PER_SEC });
       const state = { stream, fifo, ended: false };
       this.currentInsert = { ...insert, state };
+      const meta = formatInsertMeta(insert);
       this.nowPlaying = {
-        title: insert.kind === 'jingle' ? 'джингл' : insert.kind === 'call' ? 'звонок в студию' : `в эфире ${config.dj.name}`,
-        artist: null,
+        title: meta.title,
+        artist: meta.artist,
         duration: insert.bytes / BYTES_PER_SEC,
         isInsert: true,
         insertText: insert.text,
@@ -441,9 +454,10 @@ class Program {
       musicConsumed: 0,
       savedNowPlaying: this.nowPlaying,
     };
+    const meta = formatInsertMeta(insert);
     this.nowPlaying = {
-      title: insert.kind === 'call' ? 'звонок в студию' : `в эфире ${config.dj.name}`,
-      artist: null,
+      title: meta.title,
+      artist: meta.artist,
       duration: insert.bytes / BYTES_PER_SEC,
       isInsert: true,
       insertText: insert.text,
@@ -582,15 +596,16 @@ class Program {
   }
 
   /** Экстренный / ручной выход ведущего в эфир по требованию админа. */
-  async triggerBreakNow({ topic = null } = {}) {
+  async triggerBreakNow({ topic = null, kind = null } = {}) {
     if (this.preparingBreak) return { ok: false, error: 'Ведущий уже готовит реплику' };
-    log.info('program: ручной вызов ведущего в эфир из админки');
+    const breakKind = kind || (topic ? 'topic' : 'chatter');
+    log.info(`program: ручной вызов ведущего в эфир из админки (${breakKind})`);
     this.preparingBreak = true;
     try {
       const track = this.player ? this.player.track : null;
       const nextTrack = this._ensureNextTrack();
       const insert = await dj.prepareBreak({
-        kind: topic ? 'topic' : 'chatter',
+        kind: breakKind,
         topic,
         prevTrack: track,
         nextTrack,
@@ -610,9 +625,10 @@ class Program {
             musicConsumed: 0,
             savedNowPlaying: this.nowPlaying,
           };
+          const meta = formatInsertMeta(insert);
           this.nowPlaying = {
-            title: `в эфире ${config.dj.name}`,
-            artist: null,
+            title: meta.title,
+            artist: meta.artist,
             duration: insert.bytes / BYTES_PER_SEC,
             isInsert: true,
             insertText: insert.text,

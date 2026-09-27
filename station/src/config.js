@@ -41,6 +41,12 @@ const config = {
     maxTokens: num(process.env.DJ_MAX_TOKENS, 400),
     rate: numAny(process.env.DJ_RATE, 1.0),           // темп речи DJ (1 = норма)
     callerRate: numAny(process.env.CALLER_RATE, 1.0), // темп речи звонящего
+    cohostEnabled: bool(process.env.COHOST_ENABLED, true),
+    cohostName: process.env.COHOST_NAME || 'Ксюша',
+    cohostSpeaker: process.env.COHOST_SPEAKER || 'kseniya',
+    cohostRate: numAny(process.env.COHOST_RATE, 1.05),
+    cohostChance: numAny(process.env.COHOST_CHANCE, 0.4), // шанс разгона вдвоём вместо соло
+    cohostStyle: process.env.COHOST_STYLE || '',
   },
   call: {
     saveToKb: bool(process.env.CALL_SAVE_TO_KB, true),

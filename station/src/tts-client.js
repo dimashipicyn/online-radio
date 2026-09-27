@@ -306,4 +306,49 @@ async function prepareDialogueInsert(lines, { callerSpeaker, callerRate } = {}) 
   }
 }
 
-module.exports = { prepareInsert, prepareDialogueInsert };
+/**
+ * Диалоговая вставка двух ведущих в студии:
+ * Обе реплики озвучиваются в студийном качестве (без телефонных фильтров, звонков и отбоев),
+ * между репликами естественные радио-паузы.
+ * lines: [{speaker: 'dj'|'cohost', text}]
+ */
+async function prepareCoHostDialogueInsert(lines, { cohostSpeaker, cohostRate } = {}) {
+  const id = crypto.randomBytes(5).toString('hex');
+  const rawPath = path.join(INSERT_DIR, `${id}.raw`);
+  const parts = [];
+  const cSpeaker = cohostSpeaker || settings.get('dj.cohostSpeaker') || config.dj.cohostSpeaker || 'kseniya';
+  const cRate = cohostRate || settings.get('dj.cohostRate') || config.dj.cohostRate || 1.05;
+  const djSpeaker = settings.get('dj.speaker') || config.dj.speaker || 'eugene';
+  const djRate = settings.get('dj.rate') || config.dj.rate || 1.0;
+
+  try {
+    for (let i = 0; i < lines.length; i++) {
+      const isDj = lines[i].speaker === 'dj';
+      const speaker = isDj ? djSpeaker : cSpeaker;
+      const rate = isDj ? djRate : cRate;
+      const wav = await synthesize(lines[i].text, speaker, rate);
+      const tmp = path.join(INSERT_DIR, `${id}_${i}.wav`);
+      fs.writeFileSync(tmp, wav);
+      // Студийный микрофон для обоих ведущих (phone: false)
+      const pcm = await wavFileToRawBuffer(tmp, { phone: false });
+      try { fs.unlinkSync(tmp); } catch { /* ok */ }
+      parts.push(pcm);
+      if (i < lines.length - 1) parts.push(dialogueGapBytes());
+    }
+    const raw = Buffer.concat(parts);
+    fs.writeFileSync(rawPath, raw);
+    await normalizeRaw(rawPath);
+    const djName = settings.get('dj.name') || config.dj.name || 'Валера';
+    const cohostName = settings.get('dj.cohostName') || config.dj.cohostName || 'Ксюша';
+    const text = lines.map((l) => `${l.speaker === 'dj' ? djName : cohostName}: ${l.text}`).join(' | ');
+    log.info(`tts: разгон двух ведущих готов (${(raw.length / BYTES_PER_SEC).toFixed(1)}s, реплик ${lines.length}, ${djName}+${cohostName})`);
+    return { id, kind: 'duo', text, speaker: 'duo', path: rawPath, bytes: raw.length, temp: true };
+  } catch (e) {
+    log.error(`tts: разгон ведущих не удался: ${e.message}`);
+    try { fs.existsSync(rawPath) && fs.unlinkSync(rawPath); } catch { /* ок */ }
+    throw e;
+  }
+}
+
+module.exports = { prepareInsert, prepareDialogueInsert, prepareCoHostDialogueInsert };
+
