@@ -844,7 +844,7 @@ let progressTicker = null;
 let lastVolume = 1;
 
 const $ = (id) => document.getElementById(id);
-const esc = (s) => (s || '').replace(/[<>&"]/g, (c) => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+const esc = (s) => (s || '').replace(/[<>&"']/g, (c) => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
 
 function toast(msg, type = 'info') {
   const box = $('toastBox');
@@ -1417,15 +1417,6 @@ function switchInteractiveTab(tab) {
 }
 $('tabCallBtn').onclick = () => switchInteractiveTab('call');
 $('tabReqBtn').onclick = () => switchInteractiveTab('req');
-
-function esc(str) {
-  return String(str || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 // Стол заказов: поиск треков
 let searchDebounce = null;
