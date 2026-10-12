@@ -77,7 +77,7 @@ function prettify(file) {
 }
 
 /**
- * Честная ротация: случайно из 30% наименее недавно игравших.
+ * Честная ротация с защитой от повторов артиста и альбома подряд (separation).
  * jingles=false — только музыка.
  */
 function nextTrack({ category = 'music' } = {}) {
@@ -89,17 +89,91 @@ function nextTrack({ category = 'music' } = {}) {
 
 /** Посмотреть следующий трек, не трогая статистику ротации. */
 function peekTrack({ category = 'music' } = {}) {
-  const rows = db
+  // Для джинглов оставляем простую случайную ротацию
+  if (category !== 'music') {
+    const rows = db
+      .prepare(
+        `SELECT * FROM tracks 
+          WHERE category=? AND duration > 0
+          ORDER BY (last_played IS NULL) DESC, RANDOM() 
+          LIMIT 20`
+      )
+      .all(category);
+    if (!rows.length) return null;
+    return { ...rows[Math.floor(Math.random() * rows.length)] };
+  }
+
+  // Получаем недавнюю историю (последние 10 треков), чтобы исключить недавних исполнителей и альбомы
+  const recentHistory = db
     .prepare(
-      `SELECT * FROM tracks 
-        WHERE category=? AND duration > 0
-        ORDER BY (last_played IS NULL) DESC, RANDOM() 
-        LIMIT 50`
+      `SELECT h.track_id, h.artist, t.album
+       FROM history h
+       LEFT JOIN tracks t ON h.track_id = t.id
+       ORDER BY h.id DESC
+       LIMIT 10`
     )
-    .all(category);
-  if (!rows.length) return null;
-  const pool = rows.slice(0, Math.max(1, Math.ceil(rows.length * 0.3)));
-  return { ...pool[Math.floor(Math.random() * pool.length)] };
+    .all();
+
+  // Собираем запрещённые недавние альбомы и артистов
+  // Альбом блокируем на последние 5 треков
+  const recentAlbums = new Set(
+    recentHistory
+      .slice(0, 5)
+      .map((r) => (r.album || '').trim().toLowerCase())
+      .filter((a) => a && a !== 'unknown' && a !== 'various artists')
+  );
+
+  // Артиста блокируем на последние 3 трека
+  const recentArtists = new Set(
+    recentHistory
+      .slice(0, 3)
+      .map((r) => (r.artist || '').trim().toLowerCase())
+      .filter((a) => a && a !== 'unknown')
+  );
+
+  // Выбираем кандидатов: сначала никогда не игравшие, затем игравшие давно всего (last_played ASC)
+  // Берём достаточно широкий пул (100 треков), чтобы было разнообразие
+  const candidates = db
+    .prepare(
+      `SELECT * FROM tracks
+        WHERE category='music' AND duration > 0
+        ORDER BY (last_played IS NULL) DESC, last_played ASC, RANDOM()
+        LIMIT 100`
+    )
+    .all();
+
+  if (!candidates.length) return null;
+
+  // Фильтруем кандидатов: отсекаем недавний альбом и недавнего артиста
+  let filtered = candidates.filter((t) => {
+    const alb = (t.album || '').trim().toLowerCase();
+    const art = (t.artist || '').trim().toLowerCase();
+    if (alb && recentAlbums.has(alb)) return false;
+    if (art && recentArtists.has(art)) return false;
+    return true;
+  });
+
+  // Если из-за жестких фильтров ничего не осталось — пробуем фильтровать только по 1 последнему треку
+  if (!filtered.length && recentHistory.length > 0) {
+    const last = recentHistory[0];
+    const lastAlb = (last.album || '').trim().toLowerCase();
+    const lastArt = (last.artist || '').trim().toLowerCase();
+    filtered = candidates.filter((t) => {
+      const alb = (t.album || '').trim().toLowerCase();
+      const art = (t.artist || '').trim().toLowerCase();
+      if (lastAlb && alb === lastAlb) return false;
+      if (lastArt && art === lastArt) return false;
+      return true;
+    });
+  }
+
+  // Если всё ещё пусто (например, в библиотеке только 1 альбом), берём исходный пул
+  const pool = filtered.length > 0 ? filtered : candidates;
+
+  // Рандомизируем среди верхних 25-30% наименее недавно игравших треков
+  const topSize = Math.max(1, Math.min(25, Math.ceil(pool.length * 0.3)));
+  const topPool = pool.slice(0, topSize);
+  return { ...topPool[Math.floor(Math.random() * topPool.length)] };
 }
 
 function markPlayed(trackId) {
